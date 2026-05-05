@@ -1,0 +1,20 @@
+[Internet]
+   │
+   │
+[Router / Firewall]
+   │
+   │
+[Proxmox Host]
+   │
+   ├── VM1 : AD Server
+   │       └── Samba AD + DNS + Chrony
+   │
+   ├── VM2 : Wazuh Server
+   │       └── Manager + Dashboard
+   │
+   ├── VM3 : Automation Server
+   │       └── Terraform + Ansible
+   │
+   ├── VM4 : Nextcloud
+   │
+   └── VM5 : Windows Client Test
