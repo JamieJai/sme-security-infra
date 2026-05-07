@@ -1,0 +1,18 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+**/*.tfvars
+**/*.tfvars.json
+crash.log
+
+# SSH Keys
+id_ed25519*
+id_rsa*
+*.pem
+
+# OS
+.DS_Store
+*.bak
+*.log
