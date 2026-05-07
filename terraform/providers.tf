@@ -1,16 +1,15 @@
 terraform {
   required_providers {
     proxmox = {
-      source  = "bpg/proxmox"
-      version = "~> 0.70"  # 최신 버전대
+      source  = "Telmate/proxmox"
+      version = "3.0.2-rc04"
     }
   }
 }
 
 provider "proxmox" {
-  endpoint = "https://192.168.0.200:8006/api2/json"
-  api_token = "${var.proxmox_api_token_id}:${var.proxmox_api_token_secret}"
-
-  insecure = true
-  # ssh_agent = true       # 나중에 SSH Agent 사용할 때
+  pm_api_url          = "https://192.168.0.200:8006/api2/json"
+  pm_api_token_id     = var.proxmox_api_token_id
+  pm_api_token_secret = var.proxmox_api_token_secret
+  pm_tls_insecure     = true
 }
