@@ -1,0 +1,51 @@
+---
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: dc01
+
+- name: Update /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1'
+    line: "127.0.1.1 dc01.toss.lan dc01"
+
+- name: Set timezone to Asia/Seoul
+  ansible.builtin.timezone:
+    name: Asia/Seoul
+
+- name: Update apt packages
+  ansible.builtin.apt:
+    update_cache: yes
+    upgrade: dist
+    autoremove: yes
+
+- name: Install basic tools
+  ansible.builtin.apt:
+    name:
+      - curl
+      - git
+      - htop
+      - net-tools
+      - dnsutils
+      - chrony
+      - ufw
+      - fail2ban
+      - vim
+    state: present
+
+- name: Enable chrony
+  ansible.builtin.systemd:
+    name: chrony
+    state: started
+    enabled: yes
+
+- name: Allow SSH in UFW
+  ansible.builtin.ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+
+- name: Enable UFW
+  ansible.builtin.ufw:
+    state: enabled
+    policy: deny

@@ -1,0 +1,5 @@
+[ad_servers]
+dc01 ansible_host=192.168.0.20 ansible_user=sysadmin
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3

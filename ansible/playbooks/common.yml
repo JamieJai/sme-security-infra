@@ -1,0 +1,6 @@
+---
+- name: Apply Common Configuration to dc01
+  hosts: dc01
+  become: true
+  roles:
+    - common
