@@ -1,0 +1,11 @@
+---
+- name: Deploy Samba Active Directory Domain Controller
+  hosts: dc01
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  roles:
+    - common
+    - samba-ad
