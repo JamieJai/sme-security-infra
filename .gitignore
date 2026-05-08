@@ -16,3 +16,12 @@ id_rsa*
 .DS_Store
 *.bak
 *.log
+
+# Ansible
+ansible/*.retry
+ansible/vault/*.vault
+*.pyc
+__pycache__/
+
+# Temporary
+*.tmp
