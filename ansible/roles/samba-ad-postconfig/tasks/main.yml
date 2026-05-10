@@ -1,0 +1,69 @@
+---
+- name: Configure Winbind for better Windows compatibility
+  ansible.builtin.blockinfile:
+    path: "{{ samba_conf_path }}"
+    insertafter: "[global]"
+    create: true
+    block: |
+      # Winbind Settings
+      template shell = /bin/bash
+      template homedir = /home/%U
+      winbind use default domain = yes
+      winbind enum users = yes
+      winbind enum groups = yes
+      winbind refresh tickets = yes
+      idmap config * : backend = tdb
+      idmap config * : range = 3000-7999
+  notify: Restart samba-ad-dc
+
+- name: Create standard Organizational Units
+  ansible.builtin.command: >
+    samba-tool ou create "{{ item }}"
+  loop:
+    - "OU=IT,DC={{ ad_domain | lower }},DC=lan"
+    - "OU=HR,DC={{ ad_domain | lower }},DC=lan"
+    - "OU=Finance,DC={{ ad_domain | lower }},DC=lan"
+    - "OU=Security,DC={{ ad_domain | lower }},DC=lan"
+  register: ou_result
+  failed_when: false
+  changed_when: ou_result.rc == 0
+  ignore_errors: yes
+
+- name: Create standard security groups
+  ansible.builtin.command: >
+    samba-tool group add "{{ item }}"
+  loop:
+    - "IT_Admins"
+    - "Server_Admins"
+    - "HR_Staff"
+    - "Finance_Staff"
+    - "Security_Team"
+  register: group_result
+  failed_when: group_result.rc not in [0, 255]
+  changed_when: group_result.rc == 0
+
+- name: Check if ansible-service account already exists
+  ansible.builtin.command: >
+    samba-tool user show ansible-service
+  register: ansible_service_check
+  failed_when: false
+  changed_when: false
+
+- name: Create service account for Ansible
+  ansible.builtin.command: >
+    samba-tool user create ansible-service "{{ ad_service_password }}"
+      --given-name=Ansible --surname=Service --mail-address=ansible@{{ ad_realm | lower }}
+  when: ansible_service_check.rc != 0
+  no_log: true
+
+- name: Add ansible-service to Domain Admins
+  ansible.builtin.command: >
+    samba-tool group addmembers "Domain Admins" ansible-service
+  when: ansible_service_check.rc != 0
+  changed_when: false
+  ignore_errors: yes
+
+- name: Final Samba service restart
+  ansible.builtin.systemd:
+    name: samba-ad-dc
+    state: restarted

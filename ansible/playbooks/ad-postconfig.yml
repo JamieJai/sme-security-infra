@@ -1,0 +1,8 @@
+---
+- name: Samba AD Post Configuration
+  hosts: dc01
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - samba-ad-postconfig
