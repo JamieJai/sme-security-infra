@@ -1,34 +1,37 @@
+variable "ci_user"        { type = string }
+variable "ci_password"    { 
+  type      = string 
+  sensitive = true 
+}
+variable "ssh_public_key" { type = string }
+
+variable "vms" {
+  type = map(object({
+    name       = string
+    vmid       = number
+    target_node = string
+    template   = string
+    cores      = number
+    memory     = number
+    disk_size  = string
+    storage    = string
+    bridge     = string
+    ip         = string
+    gateway    = string
+    tags       = optional(list(string))
+  }))
+}
+
 variable "proxmox_api_token_id" {
-  description = "Proxmox API Token ID"
-  type        = string
-  sensitive   = true
+  type      = string
+  sensitive = true
 }
 
 variable "proxmox_api_token_secret" {
-  description = "Proxmox API Token Secret"
-  type        = string
-  sensitive   = true
+  type      = string
+  sensitive = true
 }
 
-variable "proxmox_node" {
-  description = "Proxmox target node"
-  type        = string
-  default     = "pve01"
-}
-
-variable "ci_user" {
-  description = "Cloud-init default user"
-  type        = string
-  default     = "sysadmin"
-}
-
-variable "ci_password" {
-  description = "Cloud-init user password"
-  type        = string
-  sensitive   = true          # terraform출력중 마스킹처리
-}
-
-variable "ssh_public_key" {
-  description = "SSH public key for cloud-init"
-  type        = string
+variable "pm_api_url" {
+  type = string
 }
