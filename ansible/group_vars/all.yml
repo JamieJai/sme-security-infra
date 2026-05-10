@@ -1,6 +1,6 @@
 ad_domain: "TOSS"
 ad_realm: "TOSS.LAN"
-ad_admin_password: "wjd99155!"
+ad_admin_password: "****"
 
-ad_service_password: "wjd99155!"
+ad_service_password: "****"
 samba_conf_path: /usr/local/samba/etc/smb.conf
