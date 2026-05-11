@@ -1,0 +1,92 @@
+---
+- name: Install Samba AD DC packages
+  ansible.builtin.apt:
+    name:
+      - samba-ad-dc
+      - krb5-user
+      - winbind
+      - smbclient
+      - dnsutils
+      - chrony
+    state: present
+    update_cache: yes
+
+- name: Stop and mask conflicting services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+    masked: yes
+  loop:
+    - smbd
+    - nmbd
+    - winbind
+
+- name: Remove existing smb.conf
+  ansible.builtin.file:
+    path: /etc/samba/smb.conf
+    state: absent
+
+- name: Set temporary DNS to primary DC
+  ansible.builtin.copy:
+    content: |
+      nameserver 192.168.0.20
+      search {{ ad_realm | lower }}
+    dest: /etc/resolv.conf
+    mode: '0644'
+
+- name: Wait for DNS to be reachable
+  ansible.builtin.command: ping -c 2 archive.ubuntu.com
+  register: ping_test
+  retries: 10
+  delay: 5
+  until: ping_test.rc == 0
+  changed_when: false
+
+- name: Verify primary DC DNS resolution
+  ansible.builtin.command: host dc01.{{ ad_realm | lower }} 192.168.0.20
+  changed_when: false
+
+- name: Join existing Samba Domain as Additional DC
+  ansible.builtin.command: >
+    samba-tool domain join {{ ad_realm | lower }} DC
+      -UAdministrator%{{ ad_admin_password }}
+      --realm={{ ad_realm }}
+      --dns-backend=SAMBA_INTERNAL
+      --option="interfaces=lo eth0"
+      --option="bind interfaces only=yes"
+  args:
+    creates: /var/lib/samba/private/secrets.ldb
+
+- name: Copy Kerberos config
+  ansible.builtin.copy:
+    src: /var/lib/samba/private/krb5.conf
+    dest: /etc/krb5.conf
+    remote_src: yes
+    mode: '0644'
+
+- name: Set final resolv.conf to use Samba DNS
+  ansible.builtin.copy:
+    content: |
+      nameserver 127.0.0.1
+      search {{ ad_realm | lower }}
+    dest: /etc/resolv.conf
+    mode: '0644'
+
+- name: Disable systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: no
+
+- name: Configure Chrony
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+  notify: Restart chrony
+
+- name: Restart samba-ad-dc service
+  ansible.builtin.systemd:
+    name: samba-ad-dc
+    state: restarted
+    enabled: yes

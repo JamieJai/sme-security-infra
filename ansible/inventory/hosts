@@ -1,5 +1,6 @@
 [ad_servers]
 dc01 ansible_host=192.168.0.20 ansible_user=sysadmin
+dc02 ansible_host=192.168.0.21 ansible_user=sysadmin
 
 [wazuh_server]
 wazuh ansible_host=192.168.0.30 ansible_user=sysadmin
