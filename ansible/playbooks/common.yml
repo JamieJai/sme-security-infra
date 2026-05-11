@@ -1,6 +1,6 @@
 ---
-- name: Apply Common Configuration to dc01
-  hosts: dc01
+- name: Apply Common Configuration to Ubuntu Server
+  hosts: all
   become: true
   roles:
     - common

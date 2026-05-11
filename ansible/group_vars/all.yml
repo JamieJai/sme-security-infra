@@ -1,6 +1,7 @@
-ad_domain: "TOSS"
-ad_realm: "TOSS.LAN"
-ad_admin_password: "****"
-
-ad_service_password: "****"
-samba_conf_path: /usr/local/samba/etc/smb.conf
+timezone: Asia/Seoul
+ntp_servers:
+  - ntp.ubuntu.com
+  - 192.168.0.20
+domain_name: toss.lan
+dns_server: 192.168.0.20
+admin_user: sysadmin

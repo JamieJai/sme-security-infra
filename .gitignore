@@ -22,6 +22,8 @@ ansible/*.retry
 ansible/vault/*.vault
 *.pyc
 __pycache__/
+ansible/host_vars/*.yml
+ansible/group_vars/secrets.yml
 
 # Temporary
 *.tmp

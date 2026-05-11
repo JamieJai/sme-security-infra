@@ -1,17 +1,17 @@
 ---
 - name: Set hostname
   ansible.builtin.hostname:
-    name: dc01
+    name: "{{ inventory_hostname }}"
 
 - name: Update /etc/hosts
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^127\.0\.1\.1'
-    line: "127.0.1.1 dc01.toss.lan dc01"
+    line: "127.0.1.1 {{ inventory_hostname }}.{{ domain_name }} {{ inventory_hostname }}"
 
 - name: Set timezone to Asia/Seoul
   ansible.builtin.timezone:
-    name: Asia/Seoul
+    name: "{{ timezone }}"
 
 - name: Update apt packages
   ansible.builtin.apt:
@@ -39,6 +39,7 @@
     name: chrony
     state: started
     enabled: yes
+    daemon_reload: true
 
 - name: Allow SSH in UFW
   ansible.builtin.ufw:
