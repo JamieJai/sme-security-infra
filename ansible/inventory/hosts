@@ -1,5 +1,7 @@
-[ad_servers]
+[primary_dc]
 dc01 ansible_host=192.168.0.20 ansible_user=sysadmin
+
+[secondary_dc]
 dc02 ansible_host=192.168.0.21 ansible_user=sysadmin
 
 [wazuh_server]
@@ -10,6 +12,12 @@ nextcloud ansible_host=192.168.0.50 ansible_user=sysadmin
 
 [test_server]
 windows-test ansible_host=192.168.0.60 ansible_user=sysadmin
+
+[storage_server]
+storage01 ansible_host=192.168.0.70 ansible_user=sysadmin
+
+[mail_server]
+mail01 ansible_host=192.168.0.80 ansible_user=sysadmin
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3

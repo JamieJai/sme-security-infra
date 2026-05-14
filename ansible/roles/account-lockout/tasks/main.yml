@@ -1,0 +1,7 @@
+---
+- name: Set account lockout policy
+  command: >
+    samba-tool domain passwordsettings set
+    --account-lockout-threshold=5
+    --reset-account-lockout-after=30
+    --account-lockout-duration=15

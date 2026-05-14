@@ -1,0 +1,9 @@
+---
+- name: Set domain password policy
+  command: >
+    samba-tool domain passwordsettings set
+    --min-pwd-length=12
+    --complexity=on
+    --history-length=5
+    --max-pwd-age=30
+    --min-pwd-age=1

@@ -1,0 +1,19 @@
+---
+- name: Create shared root directory
+  file:
+    path: /data/shared
+    state: directory
+    owner: root
+    group: "domain users"
+    mode: "2770"
+
+- name: Deploy smb.conf
+  template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    backup: yes
+  notify: Restart Samba
+
+- name: Validate samba config
+  command: testparm -s
+  changed_when: false
