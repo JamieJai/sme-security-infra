@@ -1,0 +1,12 @@
+hosts = 192.168.0.20 192.168.0.21
+dn = CN=Administrator,CN=Users,DC=toss,DC=lan
+dnpass = {{ ldap_bind_password }}
+
+ldap_version = 3
+base = DC=toss,DC=lan
+
+user_filter = (&(objectClass=user)(sAMAccountName=%n))
+pass_filter = (&(objectClass=user)(sAMAccountName=%n))
+
+user_attrs = homeDirectory=home,uidNumber=uid,gidNumber=gid
+userdn = yes

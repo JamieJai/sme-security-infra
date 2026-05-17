@@ -4,6 +4,16 @@
     name:
       - postfix
       - mailutils
+      - dovecot-core
+      - dovecot-imapd
+      - dovecot-pop3d
+      - dovecot-lmtpd
+      - telnet
+      - netcat-openbsd
+      - dnsutils
+      - rsyslog
+      - dovecot-ldap
+      - ldap-utils
     state: present
     update_cache: yes
 
@@ -21,3 +31,27 @@
     name: postfix
     state: started
     enabled: true
+
+- name: Ensure dovecot is running
+  ansible.builtin.systemd:
+    name: dovecot
+    state: started
+    enabled: true
+
+- name: Deploy dovecot 10-mail.conf
+  ansible.builtin.template:
+    src: 10-mail.conf.j2
+    dest: /etc/dovecot/conf.d/10-mail.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart dovecot
+
+- name: Deploy dovecot 10-auth.conf
+  ansible.builtin.template:
+    src: 10-auth.conf.j2
+    dest: /etc/dovecot/conf.d/10-auth.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart dovecot
