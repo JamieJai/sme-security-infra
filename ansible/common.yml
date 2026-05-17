@@ -1,0 +1,6 @@
+---
+- name: Apply Common Configuration to Ubuntu Server
+  hosts: all
+  become: true
+  roles:
+    - common

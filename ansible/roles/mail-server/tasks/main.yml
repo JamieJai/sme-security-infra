@@ -1,0 +1,23 @@
+---
+- name: Install mail packages
+  ansible.builtin.apt:
+    name:
+      - postfix
+      - mailutils
+    state: present
+    update_cache: yes
+
+- name: Deploy postfix main.cf
+  ansible.builtin.template:
+    src: main.cf.j2
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart postfix
+
+- name: Ensure postfix is running
+  ansible.builtin.systemd:
+    name: postfix
+    state: started
+    enabled: true

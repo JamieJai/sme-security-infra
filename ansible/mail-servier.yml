@@ -1,0 +1,7 @@
+---
+- name: Configure Mail Server
+  hosts: mail01
+  become: true
+
+  roles:
+    - mail-server

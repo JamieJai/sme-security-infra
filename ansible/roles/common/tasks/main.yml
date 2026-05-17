@@ -9,6 +9,23 @@
     regexp: '^127\.0\.1\.1'
     line: "127.0.1.1 {{ inventory_hostname }}.{{ domain_name }} {{ inventory_hostname }}"
 
+- name: Add core infrastructure hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    block: |
+      192.168.0.20 dc01.toss.lan dc01
+      192.168.0.21 dc02.toss.lan dc02
+      192.168.0.30 wazuh.toss.lan wazuh
+      192.168.0.40 automation01.toss.lan automation01
+      192.168.0.50 nextcloud.toss.lan nextcloud01
+      192.168.0.60 windows-test.toss.lan windows-test
+      192.168.0.70 storage01.toss.lan storage01
+      192.168.0.80 mail01.toss.lan mail01
+    create: yes
+    state: present
+
+
 - name: Set timezone to Asia/Seoul
   ansible.builtin.timezone:
     name: "{{ timezone }}"
