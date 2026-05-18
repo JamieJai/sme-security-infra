@@ -1,33 +1,42 @@
 - name: Install dovecot packages
-  apt:
+  ansible.builtin.apt:
     name:
       - dovecot-core
       - dovecot-imapd
-      - dovecot-ldap
+      - dovecot-pop3d
       - dovecot-lmtpd
+      - dovecot-ldap
+      - ldap-utils
     state: present
     update_cache: yes
 
 - name: Deploy mail config
-  template:
+  ansible.builtin.template:
     src: 10-mail.conf.j2
     dest: /etc/dovecot/conf.d/10-mail.conf
   notify: restart dovecot
 
 - name: Deploy auth config
-  template:
+  ansible.builtin.template:
     src: 10-auth.conf.j2
     dest: /etc/dovecot/conf.d/10-auth.conf
   notify: restart dovecot
 
 - name: Deploy LDAP config
-  template:
+  ansible.builtin.template:
     src: dovecot-ldap.conf.ext.j2
     dest: /etc/dovecot/dovecot-ldap.conf.ext
+    mode: "0600"
   notify: restart dovecot
 
 - name: Deploy LMTP config
-  template:
+  ansible.builtin.template:
     src: 10-master.conf.j2
     dest: /etc/dovecot/conf.d/10-master.conf
   notify: restart dovecot
+
+- name: Ensure dovecot is running
+  ansible.builtin.systemd:
+    name: dovecot
+    state: started
+    enabled: true
