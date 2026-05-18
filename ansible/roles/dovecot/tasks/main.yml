@@ -1,0 +1,33 @@
+- name: Install dovecot packages
+  apt:
+    name:
+      - dovecot-core
+      - dovecot-imapd
+      - dovecot-ldap
+      - dovecot-lmtpd
+    state: present
+    update_cache: yes
+
+- name: Deploy mail config
+  template:
+    src: 10-mail.conf.j2
+    dest: /etc/dovecot/conf.d/10-mail.conf
+  notify: restart dovecot
+
+- name: Deploy auth config
+  template:
+    src: 10-auth.conf.j2
+    dest: /etc/dovecot/conf.d/10-auth.conf
+  notify: restart dovecot
+
+- name: Deploy LDAP config
+  template:
+    src: dovecot-ldap.conf.ext.j2
+    dest: /etc/dovecot/dovecot-ldap.conf.ext
+  notify: restart dovecot
+
+- name: Deploy LMTP config
+  template:
+    src: 10-master.conf.j2
+    dest: /etc/dovecot/conf.d/10-master.conf
+  notify: restart dovecot

@@ -1,21 +1,13 @@
-# LDAP 서버 연결
-hosts = 192.168.0.20:636
+hosts = 192.168.0.20:389
 ldap_version = 3
-
-# TLS (LDAPS 사용)
 tls = no
 tls_require_cert = never
 
-# Base DN
 base = dc=toss,dc=lan
 scope = subtree
 
-# 인증 방식: auth_bind 사용
 auth_bind = yes
 auth_bind_userdn = %u@toss.lan
 
-# 사용자 검색 필터 (AD용)
 user_filter = (&(objectClass=user)(sAMAccountName=%u))
-
-# 사용자 속성 (메일함 위치 등)
 user_attrs = =home=/home/%u,=mail=maildir:~/Maildir

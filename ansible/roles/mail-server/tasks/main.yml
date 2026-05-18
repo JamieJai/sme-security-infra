@@ -55,3 +55,12 @@
     group: root
     mode: "0644"
   notify: Restart dovecot
+
+- name: Deploy dovecot LDAP config
+  ansible.builtin.template:
+    src: dovecot-ldap.conf.ext.j2
+    dest: /etc/dovecot/dovecot-ldap.conf.ext
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart dovecot

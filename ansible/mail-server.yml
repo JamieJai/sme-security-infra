@@ -1,8 +1,8 @@
 ---
-- name: Configure Mail Server
+- name: Configure Mail Server Dovecot
   hosts: mail01
   become: true
   vars_files:
     - group_vars/vault.yml
   roles:
-    - mail-server
+    - dovecot
