@@ -1,0 +1,64 @@
+---
+- name: Create resolved.conf.d directory
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    mode: '0755'
+
+- name: Set DNS to DC01
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/ad-dns.conf
+    content: |
+      [Resolve]
+      DNS=192.168.0.20
+      Domains=toss.lan
+    mode: '0644'
+  register: dns_config
+
+- name: Restart systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: restarted
+  when: dns_config.changed
+
+- name: Install AD integration packages
+  ansible.builtin.apt:
+    name:
+      - realmd
+      - sssd
+      - sssd-tools
+      - libnss-sss
+      - libpam-sss
+      - adcli
+      - samba-common-bin
+      - packagekit
+    state: present
+
+- name: Check if already joined to domain
+  ansible.builtin.shell: realm list | grep "{{ ad_domain }}"
+  register: realm_check
+  failed_when: false
+  changed_when: false
+
+- name: Join system to AD domain
+  ansible.builtin.shell: |
+    echo "{{ ad_admin_password }}" | realm join --user={{ ad_admin_user }} {{ ad_domain }}
+  when: realm_check.rc != 0
+  no_log: false
+
+- name: Allow all domain users to login
+  ansible.builtin.shell: realm permit --all
+  when: realm_check.rc != 0
+
+- name: Configure SSSD to create home directories
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-session
+    line: "session optional pam_mkhomedir.so skel=/etc/skel umask=077"
+    state: present
+
+- name: Grant sudo access to Domain Admins
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/ad-admins
+    content: "%Domain\\ Admins ALL=(ALL) NOPASSWD:ALL"
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s

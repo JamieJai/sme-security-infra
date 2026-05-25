@@ -1,0 +1,17 @@
+<VirtualHost *:80>
+  DocumentRoot /var/www/nextcloud/
+  ServerName {{ inventory_hostname }}.{{ domain_name }}
+
+  <Directory /var/www/nextcloud/>
+    Require all granted
+    AllowOverride All
+    Options FollowSymLinks MultiViews
+
+    <IfModule mod_dav.c>
+      Dav off
+    </IfModule>
+  </Directory>
+
+  ErrorLog ${APACHE_LOG_DIR}/error.log
+  CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>

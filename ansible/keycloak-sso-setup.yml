@@ -1,0 +1,103 @@
+---
+- name: Keycloak AD Integration and SSO Client Setup
+  hosts: iam_server
+  become: true
+
+  vars:
+    keycloak_path: "/opt/keycloak"
+    keycloak_admin_user: "admin"
+    keycloak_admin_password: "{{ keycloak_admin_password }}"
+    ad_url: "ldap://192.168.0.20:389"
+    ad_users_dn: "CN=Users,DC=TOSS,DC=LAN"
+    ad_bind_dn: "CN=Administrator,CN=Users,DC=TOSS,DC=LAN"
+    ad_bind_password: "{{ ad_service_password }}"
+    realm_name: "homelab"
+
+  tasks:
+    - name: Login to Keycloak CLI
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh config credentials \
+        --server http://localhost:8080 --realm master \
+        --user {{ keycloak_admin_user }} --password {{ keycloak_admin_password }}
+      no_log: true
+
+    - name: Create homelab realm
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get realms/{{ realm_name }} || \
+        {{ keycloak_path }}/bin/kcadm.sh create realms -s realm={{ realm_name }} -s enabled=true
+      register: realm_creation
+      changed_when: "'created' in realm_creation.stdout"
+
+    - name: Configure LDAP User Federation (Samba AD)
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh create components -r {{ realm_name }} \
+        -s name="Samba-AD" \
+        -s providerId=ldap \
+        -s providerType=org.keycloak.storage.UserStorageProvider \
+        -s 'config={
+          "enabled": ["true"],
+          "vendor": ["ad"],
+          "connectionUrl": ["{{ ad_url }}"],
+          "usersDn": ["{{ ad_users_dn }}"],
+          "authType": ["simple"],
+          "bindDn": ["{{ ad_bind_dn }}"],
+          "bindCredential": ["{{ ad_bind_password }}"],
+          "useTruststoreSpi": ["ldapsOnly"],
+          "connectionPooling": ["true"],
+          "pagination": ["true"],
+          "allowKerberosAuthentication": ["true"],
+          "serverPrincipal": ["HTTP/keycloak.toss.lan@TOSS.LAN"],
+          "keyTab": ["/etc/krb5.keytab"],
+          "searchScope": ["1"],
+          "usernameLDAPAttribute": ["sAMAccountName"],
+          "rdnLDAPAttribute": ["cn"],
+          "uuidLDAPAttribute": ["objectGUID"],
+          "userObjectClasses": ["person, organizationalPerson, user"],
+          "importUsers": ["true"],
+          "editMode": ["READ_ONLY"],
+          "syncRegistrations": ["false"]
+        }'
+      register: ldap_fed
+      failed_when: 
+        - ldap_fed.rc != 0 
+        - "'already exists' not in ldap_fed.stderr"
+      changed_when: ldap_fed.rc == 0
+
+    - name: Create Nextcloud SAML Client
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh create clients -r {{ realm_name }} \
+        -s clientId="nextcloud" \
+        -s enabled=true \
+        -s protocol="saml" \
+        -s 'attributes={
+          "saml.authnstatement": "true",
+          "saml.server.signature": "true",
+          "saml.client.signature": "false",
+          "saml_force_name_id_format": "true",
+          "saml_name_id_format": "username"
+        }' \
+        -s 'redirectUris=["http://192.168.0.50/apps/user_saml/saml/acs"]' \
+        -s 'baseUrl="http://192.168.0.50/"'
+      register: nc_client
+      failed_when: 
+        - nc_client.rc != 0 
+        - "'already exists' not in nc_client.stderr"
+      changed_when: nc_client.rc == 0
+
+    - name: Create Wazuh SAML Client
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh create clients -r {{ realm_name }} \
+        -s clientId="wazuh" \
+        -s enabled=true \
+        -s protocol="saml" \
+        -s 'attributes={
+          "saml.authnstatement": "true",
+          "saml.server.signature": "true",
+          "saml.client.signature": "false"
+        }' \
+        -s 'redirectUris=["https://192.168.0.30/_opendistro/_security/saml/acs"]'
+      register: wazuh_client
+      failed_when: 
+        - wazuh_client.rc != 0 
+        - "'already exists' not in wazuh_client.stderr"
+      changed_when: wazuh_client.rc == 0

@@ -7,11 +7,11 @@ dc02 ansible_host=192.168.0.21 ansible_user=sysadmin
 [wazuh_server]
 wazuh ansible_host=192.168.0.30 ansible_user=sysadmin
 
+[iam_server]
+keycloak ansible_host=192.168.0.60 ansible_user=sysadmin
+
 [nextcloud_server]
 nextcloud ansible_host=192.168.0.50 ansible_user=sysadmin
-
-[test_server]
-windows-test ansible_host=192.168.0.60 ansible_user=sysadmin
 
 [storage_server]
 storage01 ansible_host=192.168.0.70 ansible_user=sysadmin

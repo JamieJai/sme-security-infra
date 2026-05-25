@@ -1,0 +1,11 @@
+---
+- name: Deploy Wazuh Server
+  hosts: wazuh_server
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  roles:
+    - common
+    - wazuh-server

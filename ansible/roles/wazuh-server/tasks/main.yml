@@ -1,0 +1,35 @@
+---
+- name: Install dependencies for Wazuh
+  ansible.builtin.apt:
+    name:
+      - curl
+      - apt-transport-https
+      - lsb-release
+      - gnupg2
+    state: present
+    update_cache: yes
+
+- name: Download Wazuh installation script
+  ansible.builtin.get_url:
+    url: https://packages.wazuh.com/4.10/wazuh-install.sh
+    dest: /tmp/wazuh-install.sh
+    mode: '0755'
+
+- name: Run Wazuh all-in-one installation script
+  ansible.builtin.command:
+    cmd: bash /tmp/wazuh-install.sh -a
+    creates: /var/ossec/bin/wazuh-control
+  register: wazuh_install_result
+  notify: Restart Wazuh
+
+- name: Allow Wazuh ports in UFW
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - 1514  # Agent connection
+    - 1515  # Agent registration
+    - 55000 # Wazuh API
+    - 443   # Wazuh Dashboard
+    - 9200  # Indexer

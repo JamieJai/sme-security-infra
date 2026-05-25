@@ -1,0 +1,108 @@
+---
+- name: Install LAMP dependencies for Nextcloud
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - mariadb-server
+      - libapache2-mod-php
+      - php-gd
+      - php-mysql
+      - php-curl
+      - php-mbstring
+      - php-intl
+      - php-gmp
+      - php-bcmath
+      - php-xml
+      - php-zip
+      - php-imagick
+      - unzip
+      - python3-pymysql
+    state: present
+    update_cache: yes
+
+- name: Start and enable services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  loop:
+    - apache2
+    - mariadb
+
+- name: Create MariaDB database for Nextcloud
+  community.mysql.mysql_db:
+    name: "{{ nextcloud_db_name }}"
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Create MariaDB user for Nextcloud
+  community.mysql.mysql_user:
+    name: "{{ nextcloud_db_user }}"
+    password: "{{ nextcloud_db_password }}"
+    priv: "{{ nextcloud_db_name }}.*:ALL"
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Download Nextcloud
+  ansible.builtin.get_url:
+    url: "https://download.nextcloud.com/server/releases/nextcloud-{{ nextcloud_version }}.zip"
+    dest: "/tmp/nextcloud-{{ nextcloud_version }}.zip"
+
+- name: Remove existing Nextcloud directory (for clean update)
+  ansible.builtin.file:
+    path: /var/www/nextcloud
+    state: absent
+
+- name: Extract Nextcloud
+  ansible.builtin.unarchive:
+    src: "/tmp/nextcloud-{{ nextcloud_version }}.zip"
+    dest: /var/www/
+    remote_src: yes
+
+
+- name: Set permissions for Nextcloud
+  ansible.builtin.file:
+    path: /var/www/nextcloud
+    owner: www-data
+    group: www-data
+    recurse: yes
+    state: directory
+
+- name: Configure Apache for Nextcloud
+  ansible.builtin.template:
+    src: nextcloud.conf.j2
+    dest: /etc/apache2/sites-available/nextcloud.conf
+  notify: Restart Apache
+
+- name: Enable Nextcloud site
+  ansible.builtin.command:
+    cmd: a2ensite nextcloud.conf
+    creates: /etc/apache2/sites-enabled/nextcloud.conf
+  notify: Restart Apache
+
+- name: Disable default Apache site
+  ansible.builtin.command:
+    cmd: a2dissite 000-default.conf
+    removes: /etc/apache2/sites-enabled/000-default.conf
+  notify: Restart Apache
+
+- name: Enable Apache modules
+  community.general.apache2_module:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - rewrite
+    - headers
+    - env
+    - dir
+    - mime
+  notify: Restart Apache
+
+- name: Allow HTTP/HTTPS in UFW
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - 80
+    - 443

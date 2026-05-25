@@ -1,0 +1,83 @@
+---
+- name: Install and Configure Keycloak for IAM/SSO
+  hosts: iam_server
+  become: true
+
+  vars:
+    keycloak_version: "22.0.1"
+    keycloak_admin_user: "admin"
+    keycloak_admin_password: "{{ keycloak_admin_password }}"
+    db_password: "{{ keycloak_db_password }}"
+
+  tasks:
+    - name: Install Java (OpenJDK 17)
+      ansible.builtin.apt:
+        name: openjdk-17-jdk
+        state: present
+        update_cache: yes
+
+    - name: Create Keycloak group
+      ansible.builtin.group:
+        name: keycloak
+        state: present
+
+    - name: Create Keycloak user
+      ansible.builtin.user:
+        name: keycloak
+        group: keycloak
+        system: yes
+        shell: /sbin/nologin
+
+    - name: Download Keycloak
+      ansible.builtin.get_url:
+        url: "https://github.com/keycloak/keycloak/releases/download/{{ keycloak_version }}/keycloak-{{ keycloak_version }}.tar.gz"
+        dest: /tmp/keycloak.tar.gz
+
+    - name: Extract Keycloak
+      ansible.builtin.unarchive:
+        src: /tmp/keycloak.tar.gz
+        dest: /opt/
+        remote_src: yes
+        owner: keycloak
+        group: keycloak
+
+    - name: Create symbolic link
+      ansible.builtin.file:
+        src: "/opt/keycloak-{{ keycloak_version }}"
+        dest: /opt/keycloak
+        state: link
+        owner: keycloak
+        group: keycloak
+
+    - name: Configure Keycloak systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/keycloak.service
+        content: |
+          [Unit]
+          Description=Keycloak Server
+          After=network.target
+
+          [Service]
+          Type=idle
+          User=keycloak
+          Group=keycloak
+          Environment="KEYCLOAK_ADMIN={{ keycloak_admin_user }}"
+          Environment="KEYCLOAK_ADMIN_PASSWORD={{ keycloak_admin_password }}"
+          ExecStart=/opt/keycloak/bin/kc.sh start-dev --http-port=8080 --http-host=0.0.0.0
+          TimeoutStartSec=600
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd and start Keycloak
+      ansible.builtin.systemd:
+        name: keycloak
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Allow Keycloak port in UFW
+      ansible.builtin.ufw:
+        rule: allow
+        port: 8080
+        proto: tcp
