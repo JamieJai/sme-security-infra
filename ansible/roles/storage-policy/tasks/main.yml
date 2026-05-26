@@ -1,11 +1,11 @@
 ---
 - name: Create shared root directory
-  file:
+  ansible.builtin.file:
     path: /data/shared
     state: directory
-    owner: root
-    group: "domain users"
-    mode: "2770"
+    owner: www-data
+    group: www-data
+    mode: "0775"
 
 - name: Deploy smb.conf
   template:
@@ -16,4 +16,20 @@
 
 - name: Validate samba config
   command: testparm -s
+  changed_when: false
+
+- name: Install NFS server
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+
+- name: Export shared directory
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    line: '/data/shared 192.168.0.50(rw,sync,no_subtree_check,no_root_squash)'
+    create: yes
+  notify: Restart NFS
+
+- name: Export NFS shares
+  ansible.builtin.command: exportfs -arv
   changed_when: false

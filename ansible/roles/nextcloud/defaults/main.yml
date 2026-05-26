@@ -1,7 +1,7 @@
 nextcloud_db_name: nextcloud
 nextcloud_db_user: nextcloud
-nextcloud_db_password: "{{ nextcloud_db_password }}"
+nextcloud_db_password: "{{ vault_nextcloud_db_password }}"
 nextcloud_admin_user: admin
-nextcloud_admin_password: "{{ nextcloud_admin_password }}"
+nextcloud_admin_password: "{{ vault_nextcloud_admin_password }}"
 nextcloud_data_dir: /var/www/nextcloud/data
-nextcloud_version: 29.0.0
+nextcloud_version: 29.0.16

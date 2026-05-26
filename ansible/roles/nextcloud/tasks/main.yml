@@ -1,5 +1,5 @@
 ---
-- name: Install LAMP dependencies for Nextcloud
+- name: Install LAMP and NFS dependencies
   ansible.builtin.apt:
     name:
       - apache2
@@ -17,8 +17,23 @@
       - php-imagick
       - unzip
       - python3-pymysql
+      - php-smbclient
+      - nfs-common
+      - cifs-utils
     state: present
     update_cache: yes
+
+- name: Create mount point
+  ansible.builtin.file:
+    path: /mnt/storage01
+    state: directory
+
+- name: Mount NFS share
+  ansible.posix.mount:
+    path: /mnt/storage01
+    src: 192.168.0.70:/data/shared
+    fstype: nfs
+    state: mounted
 
 - name: Start and enable services
   ansible.builtin.systemd:
@@ -38,7 +53,7 @@
 - name: Create MariaDB user for Nextcloud
   community.mysql.mysql_user:
     name: "{{ nextcloud_db_user }}"
-    password: "{{ nextcloud_db_password }}"
+    password: "{{ vault_nextcloud_db_password }}"
     priv: "{{ nextcloud_db_name }}.*:ALL"
     state: present
     login_unix_socket: /var/run/mysqld/mysqld.sock
@@ -48,7 +63,7 @@
     url: "https://download.nextcloud.com/server/releases/nextcloud-{{ nextcloud_version }}.zip"
     dest: "/tmp/nextcloud-{{ nextcloud_version }}.zip"
 
-- name: Remove existing Nextcloud directory (for clean update)
+- name: Remove existing Nextcloud directory
   ansible.builtin.file:
     path: /var/www/nextcloud
     state: absent
@@ -59,7 +74,6 @@
     dest: /var/www/
     remote_src: yes
 
-
 - name: Set permissions for Nextcloud
   ansible.builtin.file:
     path: /var/www/nextcloud
@@ -67,6 +81,18 @@
     group: www-data
     recurse: yes
     state: directory
+
+- name: Install Nextcloud automatically
+  ansible.builtin.shell: >
+    sudo -u www-data php /var/www/nextcloud/occ maintenance:install 
+    --database="mysql" 
+    --database-name="{{ nextcloud_db_name }}" 
+    --database-user="{{ nextcloud_db_user }}" 
+    --database-pass="{{ vault_nextcloud_db_password }}" 
+    --admin-user="{{ nextcloud_admin_user }}" 
+    --admin-pass="{{ vault_nextcloud_admin_password }}"
+  args:
+    creates: /var/www/nextcloud/config/config.php
 
 - name: Configure Apache for Nextcloud
   ansible.builtin.template:
@@ -97,6 +123,30 @@
     - dir
     - mime
   notify: Restart Apache
+
+- name: Set trusted domains
+  ansible.builtin.shell: |
+    sudo -u www-data php /var/www/nextcloud/occ config:system:set trusted_domains 0 --value=192.168.0.50
+    sudo -u www-data php /var/www/nextcloud/occ config:system:set trusted_domains 1 --value=nextcloud.toss.lan
+  args:
+    executable: /bin/bash
+
+- name: Enable external storage app
+  ansible.builtin.shell: sudo -u www-data php /var/www/nextcloud/occ app:enable files_external
+  args:
+    executable: /bin/bash
+
+- name: Add NFS external storage
+  ansible.builtin.shell:
+    cmd: >
+      sudo -u www-data php /var/www/nextcloud/occ files_external:create 
+      "nfs_storage" local null::null 
+      --config="datadir=/mnt/storage01"
+  args:
+    executable: /bin/bash
+  register: nfs_mount
+  changed_when: "'Created' in nfs_mount.stdout"
+  failed_when: nfs_mount.rc != 0 and 'already exists' not in nfs_mount.stderr
 
 - name: Allow HTTP/HTTPS in UFW
   ansible.builtin.ufw:
