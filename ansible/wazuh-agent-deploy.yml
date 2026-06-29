@@ -33,6 +33,11 @@
         update_cache: yes
         allow_downgrade: yes
 
+    - name: Hold Wazuh Agent at manager-compatible version
+      ansible.builtin.dpkg_selections:
+        name: wazuh-agent
+        selection: hold
+
     - name: Configure Wazuh Manager IP
       ansible.builtin.lineinfile:
         path: /var/ossec/etc/ossec.conf
