@@ -19,6 +19,7 @@ id_rsa*
 
 # Ansible
 ansible/*.retry
+ansible/.vault_pass
 ansible/vault/*.vault
 *.pyc
 __pycache__/

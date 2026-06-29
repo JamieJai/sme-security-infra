@@ -57,7 +57,7 @@
 | Groups claim | `groups` |
 | Group provisioning | enabled |
 | Group whitelist | `HR_Staff`, `Finance_Staff`, `IT_Admins`, `Security_Team` |
-| Login restriction by whitelist | disabled |
+| Login restriction by whitelist | enabled |
 
 ## 6. Storage 권한 모델
 
@@ -75,7 +75,7 @@
 
 ## 7. Mail 연동
 
-`mail01`은 Postfix/Dovecot 기반이며 LDAP 설정은 `ldaps://192.168.0.20:636`을 기준으로 한다. Nextcloud는 `mail.toss.lan` SMTP 설정으로 내부 알림 메일을 보낸다.
+`mail01`은 Postfix/Dovecot 기반이며 LDAP 설정은 `ldaps://192.168.0.20:636`을 기준으로 한다. Keycloak의 Samba AD federation도 AD CA를 신뢰한 뒤 `ldaps://dc01.toss.lan:636`을 사용한다. Nextcloud는 `mail.toss.lan` SMTP 설정으로 내부 알림 메일을 보낸다.
 
 ## 8. TLS 인증서
 
@@ -93,6 +93,7 @@ NEXTCLOUD_TLS_CERT_SRC=/path/to/nextcloud.crt NEXTCLOUD_TLS_KEY_SRC=/path/to/nex
 - 공유용 샘플은 `terraform/terraform.tfvars.example`을 사용한다.
 - Ansible 운영 secret은 `ansible/group_vars/vault.yml` 또는 별도 Vault 파일에 넣는다.
 - Keycloak 임시 playbook은 hardcoded admin password 대신 Keycloak systemd unit의 `KEYCLOAK_ADMIN_PASSWORD`를 읽는다.
+- `ansible/.vault_pass`는 Git에 저장하지 않는다. 배포 노드 로컬 권한 또는 별도 secret manager로만 보관한다.
 - 남은 root-owned `ansible/host_vars/dc01.yml`, `ansible/host_vars/dc02.yml`의 평문 AD secret은 권한 조정 후 Vault 변수로 이동해야 한다.
 
 ## 10. 운영 명령

@@ -162,13 +162,12 @@
     - name: Configure existing Keycloak provider group provisioning in Nextcloud
       ansible.builtin.command:
         cmd: >-
-          php {{ nextcloud_occ }} user_oidc:provider {{ nextcloud_oidc_provider_id }}
+          sudo -u www-data php {{ nextcloud_occ }} user_oidc:provider {{ nextcloud_oidc_provider_id }}
           --mapping-groups=groups
           --group-provisioning=1
           --group-whitelist-regex={{ nextcloud_group_whitelist_regex }}
-          --group-restrict-login-to-whitelist=0
+          --group-restrict-login-to-whitelist=1
           --output=json
-      become_user: www-data
       no_log: true
       changed_when: true
       tags: [nextcloud, groups]

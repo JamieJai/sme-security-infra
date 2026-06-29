@@ -7,10 +7,10 @@
     keycloak_path: "/opt/keycloak"
     keycloak_admin_user: "admin"
     keycloak_admin_password: "{{ keycloak_admin_password }}"
-    ad_url: "ldap://192.168.0.20:389"
+    ad_url: "ldaps://dc01.toss.lan:636"
     ad_users_dn: "CN=Users,DC=TOSS,DC=LAN"
-    ad_bind_dn: "CN=Administrator,CN=Users,DC=TOSS,DC=LAN"
-    ad_bind_password: "{{ ad_service_password }}"
+    ad_bind_dn: "CN=Keycloak Bind,CN=Users,DC=toss,DC=lan"
+    ad_bind_password: "{{ keycloak_bind_password | default(ad_service_password) }}"
     realm_name: "homelab"
 
   tasks:

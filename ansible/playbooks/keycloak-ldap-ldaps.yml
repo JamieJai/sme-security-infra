@@ -1,0 +1,171 @@
+---
+- name: Read Samba AD LDAPS CA certificate
+  hosts: primary_dc
+  become: true
+
+  vars:
+    samba_ad_ca_cert: /var/lib/samba/private/tls/ca.pem
+
+  tasks:
+    - name: Read Samba AD CA certificate
+      ansible.builtin.slurp:
+        src: "{{ samba_ad_ca_cert }}"
+      register: samba_ad_ca_certificate
+
+- name: Trust Samba AD CA and switch Keycloak LDAP federation to LDAPS
+  hosts: iam_server
+  become: true
+
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    keycloak_ldap_provider_name: Samba-AD
+    keycloak_ldap_url: ldaps://dc01.toss.lan:636
+    keycloak_ad_ca_source_host: "{{ groups['primary_dc'][0] }}"
+    keycloak_ad_ca_cert: /usr/local/share/ca-certificates/toss-ad-ca.crt
+    java_cacerts_path: /etc/ssl/certs/java/cacerts
+    java_cacerts_password: changeit
+    java_ad_ca_alias: toss-ad-ca
+
+  tasks:
+    - name: Install LDAP and Java trust tooling
+      ansible.builtin.apt:
+        name:
+          - ldap-utils
+          - ca-certificates
+        state: present
+        update_cache: true
+
+    - name: Trust Samba AD CA in OS trust store
+      ansible.builtin.copy:
+        dest: "{{ keycloak_ad_ca_cert }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ hostvars[keycloak_ad_ca_source_host].samba_ad_ca_certificate.content | b64decode }}"
+      register: keycloak_ad_ca_copy
+
+    - name: Update OS CA trust store
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      when: keycloak_ad_ca_copy.changed
+
+    - name: Check Java truststore for Samba AD CA
+      ansible.builtin.command:
+        cmd: >-
+          keytool -list
+          -keystore {{ java_cacerts_path }}
+          -storepass {{ java_cacerts_password }}
+          -alias {{ java_ad_ca_alias }}
+      register: java_ad_ca_lookup
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Import Samba AD CA into Java truststore
+      ansible.builtin.command:
+        cmd: >-
+          keytool -importcert -noprompt -trustcacerts
+          -alias {{ java_ad_ca_alias }}
+          -file {{ keycloak_ad_ca_cert }}
+          -keystore {{ java_cacerts_path }}
+          -storepass {{ java_cacerts_password }}
+      when: java_ad_ca_lookup.rc != 0
+      no_log: true
+
+    - name: Verify LDAPS from Keycloak host
+      ansible.builtin.command:
+        cmd: ldapsearch -H {{ keycloak_ldap_url }} -x -LLL -s base -b "" namingContexts
+      register: keycloak_ldaps_check
+      changed_when: false
+
+    - name: Read Keycloak admin password from systemd unit
+      ansible.builtin.shell: |
+        systemctl cat keycloak.service | sed -n 's/^Environment="KEYCLOAK_ADMIN_PASSWORD=\(.*\)"/\1/p' | tail -1
+      register: keycloak_admin_password_result
+      changed_when: false
+      no_log: true
+
+    - name: Authenticate to Keycloak CLI
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh config credentials
+          --server http://localhost:8080
+          --realm master
+          --user {{ keycloak_admin_user }}
+          --password {{ keycloak_admin_password_result.stdout }}
+      changed_when: false
+      no_log: true
+
+    - name: Find Samba AD LDAP federation id
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get components -r {{ keycloak_realm }} |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((c.get("id","") for c in data if c.get("name") == "{{ keycloak_ldap_provider_name }}" and c.get("providerId") == "ldap"), ""), end="")'
+      register: keycloak_ldap_provider_id
+      changed_when: false
+
+    - name: Ensure Samba AD LDAP federation exists
+      ansible.builtin.assert:
+        that:
+          - keycloak_ldap_provider_id.stdout | length > 0
+        fail_msg: "Keycloak LDAP federation '{{ keycloak_ldap_provider_name }}' was not found."
+
+    - name: Read current Keycloak LDAP federation
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh get components/{{ keycloak_ldap_provider_id.stdout }}
+          -r {{ keycloak_realm }}
+      register: keycloak_ldap_provider_current
+      changed_when: false
+      no_log: true
+
+    - name: Build updated Keycloak LDAP federation payload
+      ansible.builtin.copy:
+        dest: /tmp/keycloak-ldap-ldaps.json
+        owner: root
+        group: root
+        mode: "0600"
+        content: >-
+          {{
+            keycloak_ldap_provider_current.stdout
+            | from_json
+            | combine({
+                'config': (keycloak_ldap_provider_current.stdout | from_json).config | combine({
+                  'connectionUrl': [keycloak_ldap_url],
+                  'useTruststoreSpi': ['ldapsOnly']
+                })
+              }, recursive=True)
+            | to_json
+          }}
+      no_log: true
+
+    - name: Update Keycloak LDAP federation to LDAPS
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh update components/{{ keycloak_ldap_provider_id.stdout }}
+          -r {{ keycloak_realm }}
+          -f /tmp/keycloak-ldap-ldaps.json
+      register: keycloak_ldap_ldaps_update
+      changed_when: true
+      no_log: true
+
+    - name: Restart Keycloak after LDAP trust update
+      ansible.builtin.systemd:
+        name: keycloak
+        state: restarted
+
+    - name: Wait for Keycloak HTTP endpoint
+      ansible.builtin.uri:
+        url: http://localhost:8080/realms/{{ keycloak_realm }}/.well-known/openid-configuration
+        status_code: 200
+      register: keycloak_ready
+      retries: 30
+      delay: 5
+      until: keycloak_ready.status == 200
+
+    - name: Print LDAPS verification summary
+      ansible.builtin.debug:
+        msg:
+          - "LDAPS search returned {{ keycloak_ldaps_check.stdout_lines | length }} lines."
+          - "Keycloak LDAP federation now uses {{ keycloak_ldap_url }}."
