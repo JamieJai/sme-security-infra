@@ -1,3 +1,7 @@
-mail_location = maildir:{{ vmail_dir }}/%d/%n/Maildir
+mail_location = maildir:{{ vmail_dir }}/{{ postfix_domain | default('toss.lan') }}/%n/Maildir
 mail_uid = {{ mail_uid }}
 mail_gid = {{ mail_gid }}
+
+namespace inbox {
+  inbox = yes
+}

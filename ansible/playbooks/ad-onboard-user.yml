@@ -1,0 +1,108 @@
+---
+- name: Onboard an AD user
+  hosts: primary_dc
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    ad_user_groups: []
+    ad_user_enabled: true
+    ad_user_must_change_password: false
+    ad_onboard_reset_password: false
+
+  tasks:
+    - name: Validate required onboarding variables
+      ansible.builtin.assert:
+        that:
+          - ad_user_name is defined
+          - ad_user_name | length > 0
+          - ad_user_password is defined
+          - ad_user_password | length > 0
+          - ad_user_email is defined
+          - ad_user_email | length > 0
+        fail_msg: "Set ad_user_name, ad_user_email, and ad_user_password with --extra-vars."
+      no_log: true
+
+    - name: Read AD minimum password length
+      ansible.builtin.shell: |
+        samba-tool domain passwordsettings show | awk -F': ' '/Minimum password length/ {print $2}'
+      register: ad_min_password_length_result
+      changed_when: false
+
+    - name: Set AD minimum password length
+      ansible.builtin.set_fact:
+        ad_min_password_length: "{{ ad_min_password_length_result.stdout | int }}"
+
+    - name: Ensure requested password satisfies AD policy
+      ansible.builtin.assert:
+        that:
+          - ad_user_password | length >= ad_min_password_length | int
+        fail_msg: "Requested password is shorter than the AD minimum password length of {{ ad_min_password_length }}."
+      no_log: true
+
+    - name: Check whether AD user already exists
+      ansible.builtin.command:
+        cmd: samba-tool user show {{ ad_user_name }}
+      register: ad_user_lookup
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Create AD user
+      ansible.builtin.command:
+        cmd: >-
+          samba-tool user create {{ ad_user_name }} {{ ad_user_password }}
+          --given-name={{ ad_user_given_name | default(ad_user_name) }}
+          --surname={{ ad_user_surname | default('User') }}
+          --mail-address={{ ad_user_email }}
+      when: ad_user_lookup.rc != 0
+      no_log: true
+
+    - name: Reset existing AD user password when requested
+      ansible.builtin.command:
+        cmd: samba-tool user setpassword {{ ad_user_name }} --newpassword={{ ad_user_password }}
+      when:
+        - ad_user_lookup.rc == 0
+        - ad_onboard_reset_password | bool
+      no_log: true
+
+    - name: Enable AD user
+      ansible.builtin.command:
+        cmd: samba-tool user enable {{ ad_user_name }}
+      when: ad_user_enabled | bool
+      register: ad_user_enable
+      changed_when: "'Enabled user' in ad_user_enable.stdout"
+      failed_when: false
+
+    - name: Force password change on next login when requested
+      ansible.builtin.command:
+        cmd: samba-tool user setexpiry {{ ad_user_name }} --days=0
+      when: ad_user_must_change_password | bool
+
+    - name: Ensure requested AD groups exist
+      ansible.builtin.command:
+        cmd: samba-tool group show {{ item }}
+      loop: "{{ ad_user_groups }}"
+      changed_when: false
+
+    - name: Add AD user to requested groups
+      ansible.builtin.command:
+        cmd: samba-tool group addmembers {{ item }} {{ ad_user_name }}
+      loop: "{{ ad_user_groups }}"
+      register: ad_group_add
+      changed_when: "'Added members' in ad_group_add.stdout"
+      failed_when:
+        - ad_group_add.rc != 0
+        - "'already a member' not in ad_group_add.stderr"
+
+    - name: Show onboarded AD user summary
+      ansible.builtin.command:
+        cmd: samba-tool user show {{ ad_user_name }}
+      register: ad_user_summary
+      changed_when: false
+
+    - name: Print onboarded AD user summary
+      ansible.builtin.debug:
+        var: ad_user_summary.stdout_lines

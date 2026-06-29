@@ -1,0 +1,337 @@
+---
+- name: Configure mail client autoconfig and submission
+  hosts: mail_server
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/mail.yml
+
+  vars:
+    mail_domain: "{{ postfix_domain | default(domain_name) }}"
+    mail_host: mail01.toss.lan
+    mail_ip: 192.168.0.80
+    autoconfig_root: /var/www/autoconfig
+    mail_tls_ca_key: /etc/ssl/private/toss-mail-ca.key
+    mail_tls_ca_cert: /etc/ssl/certs/toss-mail-ca.crt
+    mail_tls_key: /etc/ssl/private/mail01.toss.lan.key
+    mail_tls_csr: /etc/ssl/private/mail01.toss.lan.csr
+    mail_tls_cert: /etc/ssl/certs/mail01.toss.lan.crt
+    mail_tls_openssl_conf: /etc/ssl/mail01.toss.lan.cnf
+
+  tasks:
+    - name: Configure Dovecot mail location for localpart logins
+      ansible.builtin.copy:
+        dest: /etc/dovecot/conf.d/10-mail.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          mail_location = maildir:/var/vmail/{{ mail_domain }}/%n/Maildir
+          mail_uid = {{ mail_uid }}
+          mail_gid = {{ mail_gid }}
+
+          namespace inbox {
+            inbox = yes
+          }
+      register: dovecot_mail_config
+
+    - name: Ensure test mailbox root exists
+      ansible.builtin.file:
+        path: /var/vmail/{{ mail_domain }}
+        state: directory
+        owner: "{{ mail_uid }}"
+        group: "{{ mail_gid }}"
+        mode: "0770"
+
+    - name: Restart Dovecot when mail location changed
+      ansible.builtin.systemd:
+        name: dovecot
+        state: restarted
+      when: dovecot_mail_config.changed
+
+    - name: Ensure private TLS directory permissions
+      ansible.builtin.file:
+        path: /etc/ssl/private
+        state: directory
+        owner: root
+        group: ssl-cert
+        mode: "0710"
+
+    - name: Generate local mail CA key
+      ansible.builtin.command:
+        cmd: openssl genrsa -out {{ mail_tls_ca_key }} 4096
+        creates: "{{ mail_tls_ca_key }}"
+      no_log: true
+
+    - name: Protect local mail CA key
+      ansible.builtin.file:
+        path: "{{ mail_tls_ca_key }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Generate local mail CA certificate
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -x509 -new -nodes
+          -key {{ mail_tls_ca_key }}
+          -sha256 -days 3650
+          -subj /CN=TOSS-Mail-Internal-CA
+          -out {{ mail_tls_ca_cert }}
+        creates: "{{ mail_tls_ca_cert }}"
+
+    - name: Install mail server OpenSSL request config
+      ansible.builtin.copy:
+        dest: "{{ mail_tls_openssl_conf }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [req]
+          default_bits = 2048
+          prompt = no
+          distinguished_name = dn
+          req_extensions = v3_req
+
+          [dn]
+          CN = {{ mail_host }}
+
+          [v3_req]
+          subjectAltName = @alt_names
+
+          [alt_names]
+          DNS.1 = {{ mail_host }}
+          DNS.2 = mail.{{ mail_domain }}
+          DNS.3 = autoconfig.{{ mail_domain }}
+          IP.1 = {{ mail_ip }}
+
+    - name: Generate mail server TLS key
+      ansible.builtin.command:
+        cmd: openssl genrsa -out {{ mail_tls_key }} 2048
+        creates: "{{ mail_tls_key }}"
+      no_log: true
+
+    - name: Protect mail server TLS key
+      ansible.builtin.file:
+        path: "{{ mail_tls_key }}"
+        owner: root
+        group: ssl-cert
+        mode: "0640"
+
+    - name: Generate mail server CSR
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -new
+          -key {{ mail_tls_key }}
+          -out {{ mail_tls_csr }}
+          -config {{ mail_tls_openssl_conf }}
+        creates: "{{ mail_tls_csr }}"
+
+    - name: Sign mail server certificate with local mail CA
+      ansible.builtin.command:
+        cmd: >-
+          openssl x509 -req
+          -in {{ mail_tls_csr }}
+          -CA {{ mail_tls_ca_cert }}
+          -CAkey {{ mail_tls_ca_key }}
+          -CAcreateserial
+          -out {{ mail_tls_cert }}
+          -days 825
+          -sha256
+          -extensions v3_req
+          -extfile {{ mail_tls_openssl_conf }}
+        creates: "{{ mail_tls_cert }}"
+
+    - name: Configure Dovecot TLS certificate
+      ansible.builtin.copy:
+        dest: /etc/dovecot/conf.d/99-mail-tls.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          ssl = required
+          ssl_cert = <{{ mail_tls_cert }}
+          ssl_key = <{{ mail_tls_key }}
+      register: dovecot_tls_config
+
+    - name: Restart Dovecot when TLS changed
+      ansible.builtin.systemd:
+        name: dovecot
+        state: restarted
+      when: dovecot_tls_config.changed
+
+    - name: Ensure autoconfig directories exist
+      ansible.builtin.file:
+        path: "{{ autoconfig_root }}/mail"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Publish Thunderbird ISPDB autoconfig XML
+      ansible.builtin.copy:
+        dest: "{{ autoconfig_root }}/mail/config-v1.1.xml"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <clientConfig version="1.1">
+            <emailProvider id="{{ mail_domain }}">
+              <domain>{{ mail_domain }}</domain>
+              <displayName>TOSS Mail</displayName>
+              <displayShortName>TOSS</displayShortName>
+              <incomingServer type="imap">
+                <hostname>{{ mail_host }}</hostname>
+                <port>993</port>
+                <socketType>SSL</socketType>
+                <authentication>password-cleartext</authentication>
+                <username>%EMAILLOCALPART%</username>
+              </incomingServer>
+              <outgoingServer type="smtp">
+                <hostname>{{ mail_host }}</hostname>
+                <port>587</port>
+                <socketType>STARTTLS</socketType>
+                <authentication>password-cleartext</authentication>
+                <username>%EMAILLOCALPART%</username>
+              </outgoingServer>
+            </emailProvider>
+          </clientConfig>
+
+    - name: Install autoconfig HTTP systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/mail-autoconfig-http.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Static mail autoconfig HTTP service
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory={{ autoconfig_root }}
+          ExecStart=/usr/bin/python3 -m http.server 80 --bind 0.0.0.0 --directory {{ autoconfig_root }}
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start autoconfig HTTP service
+      ansible.builtin.systemd:
+        name: mail-autoconfig-http
+        enabled: true
+        state: restarted
+        daemon_reload: true
+
+    - name: Configure Postfix TLS and Dovecot SASL
+      ansible.builtin.command:
+        cmd: postconf -e {{ item }}
+      loop:
+        - smtpd_tls_cert_file={{ mail_tls_cert }}
+        - smtpd_tls_key_file={{ mail_tls_key }}
+        - smtpd_tls_security_level=may
+        - smtpd_sasl_type=dovecot
+        - smtpd_sasl_path=private/auth
+        - smtpd_sasl_auth_enable=yes
+        - smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject_unauth_destination
+      changed_when: true
+
+    - name: Enable Postfix submission service
+      ansible.builtin.command:
+        cmd: postconf -M submission/inet="submission inet n - y - - smtpd"
+      changed_when: true
+
+    - name: Configure Postfix submission service options
+      ansible.builtin.command:
+        cmd: postconf -P {{ item }}
+      loop:
+        - submission/inet/syslog_name=postfix/submission
+        - submission/inet/smtpd_tls_security_level=encrypt
+        - submission/inet/smtpd_sasl_auth_enable=yes
+        - submission/inet/smtpd_tls_auth_only=yes
+        - submission/inet/smtpd_reject_unlisted_recipient=no
+        - submission/inet/smtpd_client_restrictions=permit_sasl_authenticated,reject
+        - submission/inet/smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+      changed_when: true
+
+    - name: Reload Postfix
+      ansible.builtin.systemd:
+        name: postfix
+        state: reloaded
+
+    - name: Allow autoconfig and submission through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "587"
+      failed_when: false
+
+    - name: Verify mail listener ports
+      ansible.builtin.shell: |
+        ss -ltn | egrep ':(80|143|587|993)\s'
+      register: mail_listener_check
+      changed_when: false
+
+    - name: Print mail listener ports
+      ansible.builtin.debug:
+        var: mail_listener_check.stdout_lines
+
+    - name: Read local mail CA certificate for Nextcloud trust store
+      ansible.builtin.slurp:
+        src: "{{ mail_tls_ca_cert }}"
+      register: mail_ca_certificate
+
+- name: Allow Nextcloud to resolve internal mail autoconfig names
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    mail_ip: 192.168.0.80
+    mail_ca_source_host: "{{ groups['mail_server'][0] }}"
+
+  tasks:
+    - name: Add mail autoconfig names to hosts file
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE MANAGED MAIL AUTOCONFIG"
+        block: |
+          {{ mail_ip }} autoconfig.toss.lan mail.toss.lan mail01.toss.lan mail01
+
+    - name: Trust internal mail CA on Nextcloud host
+      ansible.builtin.copy:
+        dest: /usr/local/share/ca-certificates/toss-mail-ca.crt
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ hostvars[mail_ca_source_host].mail_ca_certificate.content | b64decode }}"
+      register: nextcloud_mail_ca
+
+    - name: Update Nextcloud host CA trust store
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      when: nextcloud_mail_ca.changed
+
+    - name: Reload Apache after CA trust change
+      ansible.builtin.systemd:
+        name: apache2
+        state: reloaded
+      when: nextcloud_mail_ca.changed
+      failed_when: false
+
+    - name: Verify autoconfig XML from Nextcloud host
+      ansible.builtin.uri:
+        url: http://autoconfig.toss.lan/mail/config-v1.1.xml?emailaddress=hr.test@toss.lan
+        return_content: true
+      register: nextcloud_autoconfig_xml
+
+    - name: Print autoconfig XML first lines
+      ansible.builtin.debug:
+        msg: "{{ nextcloud_autoconfig_xml.content.split('\n')[:8] }}"
