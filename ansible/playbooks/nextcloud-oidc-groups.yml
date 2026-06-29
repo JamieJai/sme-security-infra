@@ -1,0 +1,239 @@
+---
+- name: Configure department storage directories
+  hosts: storage_server
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Create department storage directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0770"
+      loop: "{{ nextcloud_department_storage }}"
+      tags: [storage]
+
+- name: Configure AD group federation and Nextcloud OIDC group claims
+  hosts: iam_server
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    keycloak_ldap_provider_name: Samba-AD
+    keycloak_ldap_groups_mapper_name: AD Groups
+    keycloak_groups_claim_mapper_name: nextcloud-groups
+    nextcloud_oidc_client_id: nextcloud-oidc
+    ad_groups_dn: CN=Users,DC=TOSS,DC=LAN
+
+  tasks:
+    - name: Read Keycloak admin password from systemd unit
+      ansible.builtin.shell: |
+        systemctl cat keycloak | sed -n 's/^Environment="KEYCLOAK_ADMIN_PASSWORD=\(.*\)"/\1/p' | tail -1
+      register: keycloak_admin_password_result
+      changed_when: false
+      no_log: true
+      tags: [keycloak, groups]
+
+    - name: Authenticate to Keycloak CLI
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh config credentials
+          --server http://localhost:8080
+          --realm master
+          --user {{ keycloak_admin_user }}
+          --password {{ keycloak_admin_password_result.stdout }}
+      changed_when: false
+      no_log: true
+      tags: [keycloak, groups]
+
+    - name: Find Samba AD LDAP federation id
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get components -r {{ keycloak_realm }} -q providerId=ldap --fields id,name |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((c.get("id","") for c in data if c.get("name") == "{{ keycloak_ldap_provider_name }}"), ""), end="")'
+      register: keycloak_ldap_provider_id
+      changed_when: false
+      tags: [keycloak, groups]
+
+    - name: Ensure Samba AD LDAP federation exists
+      ansible.builtin.assert:
+        that: [keycloak_ldap_provider_id.stdout | length > 0]
+        fail_msg: "Keycloak LDAP federation '{{ keycloak_ldap_provider_name }}' was not found in realm '{{ keycloak_realm }}'. Run keycloak-sso-setup.yml first."
+      tags: [keycloak, groups]
+
+    - name: Find existing LDAP group mapper
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get components -r {{ keycloak_realm }} -q parentId={{ keycloak_ldap_provider_id.stdout }} -q providerId=group-ldap-mapper --fields id,name |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((c.get("id","") for c in data if c.get("name") == "{{ keycloak_ldap_groups_mapper_name }}"), ""), end="")'
+      register: keycloak_ldap_groups_mapper_id
+      changed_when: false
+      tags: [keycloak, groups]
+
+    - name: Create LDAP group mapper for Samba AD groups
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh create components -r {{ keycloak_realm }}
+          -s name="{{ keycloak_ldap_groups_mapper_name }}"
+          -s providerId=group-ldap-mapper
+          -s providerType=org.keycloak.storage.ldap.mappers.LDAPStorageMapper
+          -s parentId={{ keycloak_ldap_provider_id.stdout }}
+          -s 'config={"mode":["READ_ONLY"],"groups.dn":["{{ ad_groups_dn }}"],"group.name.ldap.attribute":["cn"],"group.object.classes":["group"],"preserve.group.inheritance":["false"],"ignore.missing.groups":["true"],"membership.ldap.attribute":["member"],"membership.attribute.type":["DN"],"membership.user.ldap.attribute":["dn"],"memberof.ldap.attribute":["memberOf"],"user.roles.retrieve.strategy":["LOAD_GROUPS_BY_MEMBER_ATTRIBUTE"],"drop.non.existing.groups.during.sync":["false"]}'
+      when: keycloak_ldap_groups_mapper_id.stdout | length == 0
+      tags: [keycloak, groups]
+
+    - name: Trigger full LDAP user sync
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh create user-storage/{{ keycloak_ldap_provider_id.stdout }}/sync
+          -r {{ keycloak_realm }}
+          -s action=triggerFullSync
+      register: keycloak_ldap_sync
+      changed_when: "'success' in keycloak_ldap_sync.stdout | lower"
+      failed_when: false
+      tags: [keycloak, groups, sync]
+
+    - name: Find Nextcloud OIDC client id
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients -r {{ keycloak_realm }} -q clientId={{ nextcloud_oidc_client_id }} --fields id |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(data[0].get("id","") if data else "", end="")'
+      register: keycloak_nextcloud_client_id
+      changed_when: false
+      tags: [keycloak, groups]
+
+    - name: Ensure Nextcloud OIDC client exists
+      ansible.builtin.assert:
+        that: [keycloak_nextcloud_client_id.stdout | length > 0]
+        fail_msg: "Keycloak client '{{ nextcloud_oidc_client_id }}' was not found. Run nextcloud-oidc-sso.yml first."
+      tags: [keycloak, groups]
+
+    - name: Find existing Nextcloud groups protocol mapper
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients/{{ keycloak_nextcloud_client_id.stdout }}/protocol-mappers/models -r {{ keycloak_realm }} |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((m.get("id","") for m in data if m.get("name") == "{{ keycloak_groups_claim_mapper_name }}"), ""), end="")'
+      register: keycloak_groups_claim_mapper_id
+      changed_when: false
+      tags: [keycloak, groups]
+
+    - name: Create Nextcloud groups OIDC protocol mapper
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh create clients/{{ keycloak_nextcloud_client_id.stdout }}/protocol-mappers/models
+          -r {{ keycloak_realm }}
+          -s name="{{ keycloak_groups_claim_mapper_name }}"
+          -s protocol=openid-connect
+          -s protocolMapper=oidc-group-membership-mapper
+          -s 'config={"claim.name":"groups","full.path":"false","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}'
+      when: keycloak_groups_claim_mapper_id.stdout | length == 0
+      tags: [keycloak, groups]
+
+    - name: Update existing Nextcloud groups OIDC protocol mapper
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh update clients/{{ keycloak_nextcloud_client_id.stdout }}/protocol-mappers/models/{{ keycloak_groups_claim_mapper_id.stdout }}
+          -r {{ keycloak_realm }}
+          -s name="{{ keycloak_groups_claim_mapper_name }}"
+          -s protocol=openid-connect
+          -s protocolMapper=oidc-group-membership-mapper
+          -s 'config={"claim.name":"groups","full.path":"false","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}'
+      when: keycloak_groups_claim_mapper_id.stdout | length > 0
+      tags: [keycloak, groups]
+
+- name: Configure Nextcloud OIDC group provisioning and storage permissions
+  hosts: nextcloud_server
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_oidc_provider_id: homelab-keycloak
+    nextcloud_group_whitelist_regex: "^({{ nextcloud_oidc_department_groups | join('|') }})$"
+
+  tasks:
+    - name: Configure existing Keycloak provider group provisioning in Nextcloud
+      ansible.builtin.command:
+        cmd: >-
+          php {{ nextcloud_occ }} user_oidc:provider {{ nextcloud_oidc_provider_id }}
+          --mapping-groups=groups
+          --group-provisioning=1
+          --group-whitelist-regex={{ nextcloud_group_whitelist_regex }}
+          --group-restrict-login-to-whitelist=0
+          --output=json
+      become_user: www-data
+      no_log: true
+      changed_when: true
+      tags: [nextcloud, groups]
+
+    - name: Ensure expected Nextcloud groups exist for storage ACLs
+      ansible.builtin.shell: |
+        if sudo -u www-data php {{ nextcloud_occ }} group:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); exit(array_key_exists("{{ item }}", $j ?: []) ? 0 : 1);'; then
+          echo exists
+        else
+          sudo -u www-data php {{ nextcloud_occ }} group:add "{{ item }}"
+          echo changed
+        fi
+      loop: "{{ nextcloud_oidc_department_groups }}"
+      register: nextcloud_group_create
+      changed_when: "'changed' in nextcloud_group_create.stdout"
+      tags: [nextcloud, groups, storage]
+
+    - name: Restrict legacy root NFS mount to IT admins
+      ansible.builtin.shell: |
+        set -e
+        mount_id=$(sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); foreach ($j ?: [] as $m) { if (($m["mount_point"] ?? "") === "/nfs_storage") { echo $m["mount_id"]; break; }}')
+        if [ -z "$mount_id" ]; then
+          echo missing
+          exit 0
+        fi
+        has_group=$(sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); foreach ($j ?: [] as $m) { if (($m["mount_point"] ?? "") === "/nfs_storage") { exit(in_array("IT_Admins", $m["applicable_groups"] ?? [], true) ? 0 : 1); }} exit(1);' && echo yes || echo no)
+        if [ "$has_group" = "no" ]; then
+          sudo -u www-data php {{ nextcloud_occ }} files_external:applicable "$mount_id" --add-group="IT_Admins" >/dev/null
+          echo changed
+        else
+          echo exists
+        fi
+      register: nextcloud_legacy_storage_apply
+      changed_when: "'changed' in nextcloud_legacy_storage_apply.stdout"
+      tags: [nextcloud, storage]
+
+    - name: Ensure department external storage mounts exist and are limited by group
+      ansible.builtin.shell: |
+        set -e
+        mount_id=$(sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); foreach ($j ?: [] as $m) { if (($m["mount_point"] ?? "") === "/{{ item.nextcloud_mount }}") { echo $m["mount_id"]; break; }}')
+        if [ -z "$mount_id" ]; then
+          sudo -u www-data php {{ nextcloud_occ }} files_external:create "{{ item.nextcloud_mount }}" local null::null --config datadir={{ item.nextcloud_path }} >/dev/null
+          mount_id=$(sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); foreach ($j ?: [] as $m) { if (($m["mount_point"] ?? "") === "/{{ item.nextcloud_mount }}") { echo $m["mount_id"]; break; }}')
+          changed=1
+        fi
+        has_group=$(sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); foreach ($j ?: [] as $m) { if (($m["mount_point"] ?? "") === "/{{ item.nextcloud_mount }}") { exit(in_array("{{ item.group }}", $m["applicable_groups"] ?? [], true) ? 0 : 1); }} exit(1);' && echo yes || echo no)
+        if [ "$has_group" = "no" ]; then
+          sudo -u www-data php {{ nextcloud_occ }} files_external:applicable "$mount_id" --add-group="{{ item.group }}" >/dev/null
+          changed=1
+        fi
+        if [ "${changed:-0}" = "1" ]; then echo changed; else echo exists; fi
+      loop: "{{ nextcloud_department_storage }}"
+      register: nextcloud_department_storage_apply
+      changed_when: "'changed' in nextcloud_department_storage_apply.stdout"
+      tags: [nextcloud, storage]
+
+    - name: List Nextcloud OIDC provider and storage state
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} user_oidc:providers --output=json_pretty
+        sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json_pretty
+      register: nextcloud_group_storage_summary
+      changed_when: false
+      tags: [verify, nextcloud, groups, storage]
+
+    - name: Print Nextcloud group and storage summary
+      ansible.builtin.debug:
+        var: nextcloud_group_storage_summary.stdout_lines
+      tags: [verify, nextcloud, groups, storage]

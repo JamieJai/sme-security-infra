@@ -1,0 +1,99 @@
+ci_user        = "sysadmin"
+ci_password    = "CHANGE_ME_USE_TF_VAR_ci_password_OR_LOCAL_TFVARS"
+ssh_public_key = "ssh-ed25519 CHANGE_ME sysadmin@automation01"
+pm_api_url     = "https://192.168.0.200:8006/api2/json"
+
+vms = {
+  dc01 = {
+    name        = "dc01"
+    vmid        = 101
+    target_node = "pve01"
+    template    = "ubuntu-2404-golden"
+    cores       = 2
+    memory      = 4096
+    disk_size   = "70G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    ip          = "192.168.0.20"
+    gateway     = "192.168.0.1"
+    tags        = ["ad", "domain-controller"]
+  }
+
+  dc02 = {
+    name        = "dc02"
+    vmid        = 106
+    target_node = "pve01"
+    template    = "ubuntu-2404-golden"
+    cores       = 2
+    memory      = 4096
+    disk_size   = "70G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    ip          = "192.168.0.21"
+    gateway     = "192.168.0.1"
+    tags        = ["ad", "domain-controller", "secondary-dc"]
+  }
+
+  wazuh = {
+    name        = "wazuh"
+    vmid        = 104
+    target_node = "pve01"
+    template    = "ubuntu-2404-golden"
+    cores       = 4
+    memory      = 8192
+    disk_size   = "100G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    ip          = "192.168.0.30"
+    gateway     = "192.168.0.1"
+    tags        = ["security", "wazuh"]
+  }
+
+  nextcloud = {
+    name        = "nextcloud"
+    vmid        = 103
+    target_node = "pve01"
+    template    = "ubuntu-2404-golden"
+    cores       = 4
+    memory      = 8192
+    disk_size   = "100G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    ip          = "192.168.0.50"
+    gateway     = "192.168.0.1"
+    tags        = ["cloud", "nextcloud"]
+  }
+
+  keycloak = {
+    name        = "keycloak"
+    vmid        = 105
+    target_node = "pve01"
+    template    = "ubuntu-2404-golden"
+    cores       = 2
+    memory      = 4096
+    disk_size   = "40G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    ip          = "192.168.0.60"
+    gateway     = "192.168.0.1"
+    tags        = ["iam", "keycloak"]
+  }
+
+  mail01 = {
+    name        = "mail01"
+    vmid        = 108
+    target_node = "pve01"
+    template    = "ubuntu-2404-golden"
+    cores       = 2
+    memory      = 6144
+    disk_size   = "60G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    ip          = "192.168.0.80"
+    gateway     = "192.168.0.1"
+    tags        = ["mail", "infrastructure"]
+  }
+}
+
+proxmox_api_token_id     = "root@pam!terraform"
+proxmox_api_token_secret = "CHANGE_ME_USE_TF_VAR_proxmox_api_token_secret_OR_LOCAL_TFVARS"

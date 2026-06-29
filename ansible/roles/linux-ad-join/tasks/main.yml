@@ -40,11 +40,19 @@
   failed_when: false
   changed_when: false
 
+- name: Ensure AD join password is provided
+  ansible.builtin.assert:
+    that:
+      - ad_admin_password | length > 0
+    fail_msg: "Set ad_admin_password via Ansible Vault before joining hosts to AD."
+  no_log: true
+  when: realm_check.rc != 0
+
 - name: Join system to AD domain
   ansible.builtin.shell: |
     echo "{{ ad_admin_password }}" | realm join --user={{ ad_admin_user }} {{ ad_domain }}
   when: realm_check.rc != 0
-  no_log: false
+  no_log: true
 
 - name: Allow all domain users to login
   ansible.builtin.shell: realm permit --all

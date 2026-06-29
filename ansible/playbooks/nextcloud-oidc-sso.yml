@@ -1,0 +1,341 @@
+---
+- name: Configure Keycloak OIDC client for Nextcloud
+  hosts: iam_server
+  become: true
+
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    nextcloud_oidc_client_id: nextcloud-oidc
+    nextcloud_base_urls:
+      - https://192.168.0.50
+      - https://nextcloud.toss.lan
+      - http://192.168.0.50
+      - http://nextcloud.toss.lan
+    nextcloud_oidc_redirect_paths:
+      - /index.php/apps/user_oidc/code
+      - /apps/user_oidc/code
+
+  tasks:
+    - name: Read Keycloak admin password from systemd unit
+      ansible.builtin.shell: |
+        systemctl cat keycloak | sed -n 's/^Environment="KEYCLOAK_ADMIN_PASSWORD=\(.*\)"/\1/p' | tail -1
+      register: keycloak_admin_password_result
+      changed_when: false
+      no_log: true
+      tags:
+        - keycloak
+        - sso
+
+    - name: Authenticate to Keycloak CLI
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh config credentials
+          --server http://localhost:8080
+          --realm master
+          --user {{ keycloak_admin_user }}
+          --password {{ keycloak_admin_password_result.stdout }}
+      changed_when: false
+      no_log: true
+      tags:
+        - keycloak
+        - sso
+
+    - name: Find existing Nextcloud OIDC client
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients -r {{ keycloak_realm }} -q clientId={{ nextcloud_oidc_client_id }} --fields id | sed -n 's/.*"id" : "\([^"]*\)".*/\1/p' | head -1
+      register: nextcloud_oidc_client_lookup
+      changed_when: false
+      tags:
+        - keycloak
+        - sso
+
+    - name: Create Nextcloud OIDC public client
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh create clients -r {{ keycloak_realm }}
+          -s clientId={{ nextcloud_oidc_client_id }}
+          -s protocol=openid-connect
+          -s enabled=true
+          -s publicClient=false
+          -s standardFlowEnabled=true
+          -s directAccessGrantsEnabled=false
+          -s implicitFlowEnabled=false
+          -s 'redirectUris={{ (nextcloud_base_urls | product(nextcloud_oidc_redirect_paths) | map('join') | list) | to_json }}'
+          -s 'webOrigins={{ nextcloud_base_urls | to_json }}'
+          -s baseUrl={{ nextcloud_base_urls[0] }}
+      when: nextcloud_oidc_client_lookup.stdout | length == 0
+      tags:
+        - keycloak
+        - sso
+
+    - name: Update existing Nextcloud OIDC client
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh update clients/{{ nextcloud_oidc_client_lookup.stdout }} -r {{ keycloak_realm }}
+          -s enabled=true
+          -s publicClient=false
+          -s standardFlowEnabled=true
+          -s directAccessGrantsEnabled=false
+          -s implicitFlowEnabled=false
+          -s 'redirectUris={{ (nextcloud_base_urls | product(nextcloud_oidc_redirect_paths) | map('join') | list) | to_json }}'
+          -s 'webOrigins={{ nextcloud_base_urls | to_json }}'
+          -s baseUrl={{ nextcloud_base_urls[0] }}
+      when: nextcloud_oidc_client_lookup.stdout | length > 0
+      tags:
+        - keycloak
+        - sso
+
+    - name: Re-read Nextcloud OIDC client id
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients -r {{ keycloak_realm }} -q clientId={{ nextcloud_oidc_client_id }} --fields id | sed -n 's/.*"id" : "\([^"]*\)".*/\1/p' | head -1
+      register: nextcloud_oidc_client_id_lookup
+      changed_when: false
+      tags:
+        - keycloak
+        - sso
+
+    - name: Read Nextcloud OIDC client secret
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients/{{ nextcloud_oidc_client_id_lookup.stdout }}/client-secret -r {{ keycloak_realm }} --fields value | grep "value" | cut -d "\"" -f4
+      register: nextcloud_oidc_client_secret
+      changed_when: false
+      no_log: true
+      tags:
+        - keycloak
+        - nextcloud
+        - sso
+
+    - name: Show Nextcloud OIDC client summary
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients -r {{ keycloak_realm }} -q clientId={{ nextcloud_oidc_client_id }} --fields clientId,protocol,publicClient,redirectUris,webOrigins
+      register: nextcloud_oidc_client_summary
+      changed_when: false
+      tags:
+        - verify
+        - keycloak
+        - sso
+
+    - name: Print Nextcloud OIDC client summary
+      ansible.builtin.debug:
+        var: nextcloud_oidc_client_summary.stdout_lines
+      tags:
+        - verify
+        - keycloak
+        - sso
+
+- name: Configure Nextcloud OIDC provider
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_oidc_provider_id: homelab-keycloak
+    nextcloud_oidc_client_id: nextcloud-oidc
+    keycloak_discovery_uri: http://192.168.0.60:8080/realms/homelab/.well-known/openid-configuration
+    keycloak_logout_uri: http://192.168.0.60:8080/realms/homelab/protocol/openid-connect/logout
+    nextcloud_post_logout_uri: https://192.168.0.50
+
+  tasks:
+    - name: Ensure user_oidc app is installed and enabled
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} app:install user_oidc
+      register: user_oidc_install
+      changed_when: "'installed' in user_oidc_install.stdout or 'enabled' in user_oidc_install.stdout"
+      failed_when:
+        - user_oidc_install.rc != 0
+        - "'already installed' not in user_oidc_install.stdout"
+      tags:
+        - nextcloud
+        - sso
+
+    - name: Allow Nextcloud to reach internal Keycloak discovery endpoint
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} config:system:set allow_local_remote_servers --type=boolean --value=true
+      changed_when: true
+      tags:
+        - nextcloud
+        - sso
+
+    - name: Configure Keycloak provider in Nextcloud
+      ansible.builtin.command:
+        cmd: >-
+          php {{ nextcloud_occ }} user_oidc:provider {{ nextcloud_oidc_provider_id }}
+          --clientid={{ nextcloud_oidc_client_id }}
+          --clientsecret-env=OIDC_CLIENT_SECRET
+          --discoveryuri={{ keycloak_discovery_uri }}
+          --endsessionendpointuri={{ keycloak_logout_uri }}
+          --postlogouturi={{ nextcloud_post_logout_uri }}
+          --scope="openid email profile"
+          --unique-uid=0
+          --mapping-uid=preferred_username
+          --mapping-display-name=name
+          --mapping-email=email
+          --output=json
+      register: nextcloud_oidc_provider
+      become_user: www-data
+      environment:
+        OIDC_CLIENT_SECRET: "{{ hostvars[groups['iam_server'][0]].nextcloud_oidc_client_secret.stdout }}"
+      no_log: true
+      changed_when: true
+      tags:
+        - nextcloud
+        - sso
+
+    - name: List Nextcloud OIDC providers
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} user_oidc:providers --output=json_pretty
+      register: nextcloud_oidc_providers
+      changed_when: false
+      tags:
+        - verify
+        - nextcloud
+        - sso
+
+    - name: Print Nextcloud OIDC providers
+      ansible.builtin.debug:
+        var: nextcloud_oidc_providers.stdout_lines
+      tags:
+        - verify
+        - nextcloud
+        - sso
+
+    - name: Check OIDC login redirect
+      ansible.builtin.shell: |
+        provider_id=$(sudo -u www-data php {{ nextcloud_occ }} user_oidc:providers --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); echo $j["id"] ?? ($j[0]["id"] ?? "");')
+        test -n "$provider_id"
+        curl -k -sS -I "https://192.168.0.50/index.php/apps/user_oidc/login/${provider_id}" | head -10
+      register: nextcloud_oidc_login_redirect
+      changed_when: false
+      tags:
+        - verify
+        - nextcloud
+        - sso
+
+    - name: Print OIDC login redirect headers
+      ansible.builtin.debug:
+        var: nextcloud_oidc_login_redirect.stdout_lines
+      tags:
+        - verify
+        - nextcloud
+        - sso
+
+- name: Ensure Nextcloud HTTPS for OIDC
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_ssl_cert: /etc/ssl/certs/nextcloud-selfsigned.crt
+    nextcloud_ssl_key: /etc/ssl/private/nextcloud-selfsigned.key
+
+  tasks:
+    - name: Ensure OpenSSL is installed
+      ansible.builtin.apt:
+        name: openssl
+        state: present
+        update_cache: yes
+      tags:
+        - https
+        - sso
+
+    - name: Create Nextcloud self-signed certificate when missing
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -x509 -nodes -days 825 -newkey rsa:2048
+          -keyout {{ nextcloud_ssl_key }}
+          -out {{ nextcloud_ssl_cert }}
+          -subj /CN=nextcloud.toss.lan
+          -addext subjectAltName=DNS:nextcloud.toss.lan,DNS:nextcloud,IP:192.168.0.50
+        creates: "{{ nextcloud_ssl_cert }}"
+      tags:
+        - https
+        - sso
+
+    - name: Restrict Nextcloud private key permissions
+      ansible.builtin.file:
+        path: "{{ nextcloud_ssl_key }}"
+        owner: root
+        group: ssl-cert
+        mode: "0640"
+      tags:
+        - https
+        - sso
+
+    - name: Configure Apache HTTPS vhost for Nextcloud
+      ansible.builtin.copy:
+        dest: /etc/apache2/sites-available/nextcloud-ssl.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          <VirtualHost *:443>
+            ServerName nextcloud.toss.lan
+            ServerAlias 192.168.0.50
+            DocumentRoot /var/www/nextcloud/
+
+            SSLEngine on
+            SSLCertificateFile {{ nextcloud_ssl_cert }}
+            SSLCertificateKeyFile {{ nextcloud_ssl_key }}
+
+            <Directory /var/www/nextcloud/>
+              Require all granted
+              AllowOverride All
+              Options FollowSymLinks MultiViews
+
+              <IfModule mod_dav.c>
+                Dav off
+              </IfModule>
+            </Directory>
+
+            ErrorLog ${APACHE_LOG_DIR}/nextcloud-ssl-error.log
+            CustomLog ${APACHE_LOG_DIR}/nextcloud-ssl-access.log combined
+          </VirtualHost>
+      tags:
+        - https
+        - sso
+
+    - name: Enable Apache SSL modules
+      ansible.builtin.command:
+        cmd: a2enmod ssl headers rewrite
+      register: apache_ssl_modules
+      changed_when: "'Enabling' in apache_ssl_modules.stdout"
+      tags:
+        - https
+        - sso
+
+    - name: Enable Nextcloud HTTPS site
+      ansible.builtin.command:
+        cmd: a2ensite nextcloud-ssl.conf
+        creates: /etc/apache2/sites-enabled/nextcloud-ssl.conf
+      tags:
+        - https
+        - sso
+
+    - name: Allow HTTPS in UFW
+      community.general.ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+      tags:
+        - https
+        - sso
+
+    - name: Set Nextcloud HTTPS overwrite settings
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php /var/www/nextcloud/occ config:system:set {{ item.key }} --value={{ item.value }}"
+      loop:
+        - { key: overwrite.cli.url, value: "https://192.168.0.50" }
+        - { key: overwriteprotocol, value: "https" }
+      changed_when: true
+      tags:
+        - https
+        - sso
+
+    - name: Reload Apache
+      ansible.builtin.systemd:
+        name: apache2
+        state: reloaded
+      tags:
+        - https
+        - sso

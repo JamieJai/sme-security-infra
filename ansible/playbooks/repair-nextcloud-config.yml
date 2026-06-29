@@ -1,0 +1,145 @@
+---
+- name: Repair Nextcloud configuration
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_root: /var/www/nextcloud
+    nextcloud_config: /var/www/nextcloud/config/config.php
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_trusted_domains:
+      - localhost
+      - 192.168.0.50
+      - nextcloud.toss.lan
+    nextcloud_external_storage_name: nfs_storage
+    nextcloud_external_storage_path: /mnt/storage01
+
+  tasks:
+    - name: Check Nextcloud config exists
+      ansible.builtin.stat:
+        path: "{{ nextcloud_config }}"
+      register: nextcloud_config_stat
+      tags:
+        - precheck
+        - config
+        - trusted
+        - apps
+        - storage
+        - verify
+
+    - name: Stop when Nextcloud config is missing
+      ansible.builtin.fail:
+        msg: "{{ nextcloud_config }} does not exist"
+      when: not nextcloud_config_stat.stat.exists
+      tags:
+        - precheck
+        - config
+        - trusted
+        - apps
+        - storage
+        - verify
+
+    - name: Check installed flag in config.php
+      ansible.builtin.shell: "grep -q \"^  'installed' => true,\" {{ nextcloud_config }}"
+      register: nextcloud_installed_flag
+      changed_when: false
+      failed_when: false
+      tags:
+        - precheck
+        - config
+
+    - name: Add installed flag to config.php
+      ansible.builtin.lineinfile:
+        path: "{{ nextcloud_config }}"
+        regexp: "^  'installed' =>"
+        line: "  'installed' => true,"
+        insertbefore: "^\\);$"
+        owner: www-data
+        group: www-data
+        mode: "0640"
+      when: nextcloud_installed_flag.rc != 0
+      tags:
+        - config
+
+    - name: Ensure Nextcloud data directory marker exists
+      ansible.builtin.file:
+        path: "{{ nextcloud_root }}/data/.ocdata"
+        state: touch
+        owner: www-data
+        group: www-data
+        mode: "0640"
+      tags:
+        - data
+        - config
+
+    - name: Check Nextcloud status
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} status"
+      register: nextcloud_status
+      changed_when: false
+      tags:
+        - verify
+
+    - name: Show Nextcloud status
+      ansible.builtin.debug:
+        var: nextcloud_status.stdout_lines
+      tags:
+        - verify
+
+    - name: Configure trusted domains
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} config:system:set trusted_domains {{ ansible_loop.index0 }} --value={{ item }}"
+      loop: "{{ nextcloud_trusted_domains }}"
+      loop_control:
+        extended: true
+      changed_when: true
+      tags:
+        - trusted
+
+    - name: Configure overwrite CLI URL
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} config:system:set overwrite.cli.url --value=http://192.168.0.50"
+      changed_when: true
+      tags:
+        - trusted
+
+    - name: Enable external storage app
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} app:enable files_external"
+      register: nextcloud_files_external
+      changed_when: "'enabled' in nextcloud_files_external.stdout"
+      tags:
+        - apps
+
+    - name: Check existing external storage mounts
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} files_external:list"
+      register: nextcloud_external_mounts
+      changed_when: false
+      tags:
+        - storage
+
+    - name: Add NFS external storage
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} files_external:create {{ nextcloud_external_storage_name }} local null::null --config datadir={{ nextcloud_external_storage_path }}"
+      register: nextcloud_nfs_mount
+      changed_when: "'Created' in nextcloud_nfs_mount.stdout"
+      when: nextcloud_external_storage_name not in nextcloud_external_mounts.stdout
+      tags:
+        - storage
+
+    - name: Show external storage mounts
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} files_external:list"
+      register: nextcloud_external_storage_verify
+      changed_when: false
+      tags:
+        - verify
+        - storage
+
+    - name: Print external storage mounts
+      ansible.builtin.debug:
+        var: nextcloud_external_storage_verify.stdout_lines
+      tags:
+        - verify
+        - storage

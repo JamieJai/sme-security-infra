@@ -1,0 +1,86 @@
+---
+- name: Configure Nextcloud integrations
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_admin_user: admin
+    nextcloud_admin_email: sysadmin@toss.lan
+
+    nextcloud_mail_settings:
+      mail_smtpmode: smtp
+      mail_smtphost: mail01.toss.lan
+      mail_smtpport: "25"
+      mail_smtpsecure: ""
+      mail_smtpauth: "0"
+      mail_from_address: nextcloud
+      mail_domain: toss.lan
+
+  tasks:
+    - name: Check Nextcloud status
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} status"
+      register: nextcloud_status
+      changed_when: false
+      tags:
+        - precheck
+        - mail
+        - verify
+
+    - name: Configure Nextcloud SMTP settings
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} config:system:set {{ item.key }} --value={{ item.value }}"
+      loop: "{{ nextcloud_mail_settings | dict2items }}"
+      changed_when: true
+      tags:
+        - mail
+
+    - name: Configure Nextcloud admin email
+      ansible.builtin.command:
+        cmd: "sudo -u www-data php {{ nextcloud_occ }} user:setting {{ nextcloud_admin_user }} settings email {{ nextcloud_admin_email }}"
+      changed_when: true
+      tags:
+        - mail
+
+    - name: Show configured Nextcloud mail settings
+      ansible.builtin.shell: |
+        for key in mail_smtpmode mail_smtphost mail_smtpport mail_smtpsecure mail_smtpauth mail_from_address mail_domain; do
+          value=$(sudo -u www-data php {{ nextcloud_occ }} config:system:get "$key" 2>/dev/null || true)
+          if [ -z "$value" ]; then value="<unset>"; fi
+          printf '%s=%s\n' "$key" "$value"
+        done
+      register: nextcloud_mail_config
+      changed_when: false
+      tags:
+        - verify
+        - mail
+
+    - name: Print configured Nextcloud mail settings
+      ansible.builtin.debug:
+        var: nextcloud_mail_config.stdout_lines
+      tags:
+        - verify
+        - mail
+
+- name: Allow Nextcloud to access mail services
+  hosts: mail_server
+  become: true
+
+  vars:
+    nextcloud_host_ip: 192.168.0.50
+    nextcloud_mail_access_ports:
+      - 143
+      - 993
+
+  tasks:
+    - name: Allow Nextcloud IMAP access through UFW
+      community.general.ufw:
+        rule: allow
+        proto: tcp
+        from_ip: "{{ nextcloud_host_ip }}"
+        port: "{{ item }}"
+      loop: "{{ nextcloud_mail_access_ports }}"
+      tags:
+        - mail_firewall
+        - mail

@@ -5,3 +5,31 @@ ntp_servers:
 domain_name: toss.lan
 dns_server: 192.168.0.20
 admin_user: sysadmin
+
+nextcloud_oidc_department_groups:
+  - HR_Staff
+  - Finance_Staff
+  - IT_Admins
+  - Security_Team
+
+nextcloud_department_storage:
+  - name: HR
+    path: /data/shared/departments/hr
+    nextcloud_mount: HR
+    nextcloud_path: /mnt/storage01/departments/hr
+    group: HR_Staff
+  - name: Finance
+    path: /data/shared/departments/finance
+    nextcloud_mount: Finance
+    nextcloud_path: /mnt/storage01/departments/finance
+    group: Finance_Staff
+  - name: IT
+    path: /data/shared/departments/it
+    nextcloud_mount: IT
+    nextcloud_path: /mnt/storage01/departments/it
+    group: IT_Admins
+  - name: Security
+    path: /data/shared/departments/security
+    nextcloud_mount: Security
+    nextcloud_path: /mnt/storage01/departments/security
+    group: Security_Team
