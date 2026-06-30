@@ -1,0 +1,129 @@
+---
+- name: Build Nextcloud addressbook users from AD
+  hosts: primary_dc
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/mail.yml
+
+  vars:
+    mail_domain: "{{ postfix_domain | default(domain_name) }}"
+    nextcloud_addressbook_excluded_users:
+      - ansible-service
+      - keycloak-bind
+      - krbtgt
+      - guest
+      - administrator
+
+  tasks:
+    - name: Read enabled AD users with mail addresses for Nextcloud
+      ansible.builtin.shell: |
+        set -e
+        samba-tool user list | while read -r user; do
+          [ -n "$user" ] || continue
+          samba-tool user show "$user" 2>/dev/null | awk -v domain="{{ mail_domain }}" '
+            /^sAMAccountName:/ { sam=$2 }
+            /^displayName:/ { sub(/^displayName: /, ""); display=$0 }
+            /^mail:/ { mail=$2 }
+            /^userAccountControl:/ { uac=$2 }
+            END {
+              disabled = int((uac + 0) / 2) % 2
+              if (!disabled && sam != "" && mail ~ ("@" domain "$")) {
+                if (display == "") display = sam
+                printf "%s\t%s\t%s\n", sam, display, mail
+              }
+            }
+          '
+        done | sort -u
+      register: ad_nextcloud_addressbook_users
+      changed_when: false
+
+    - name: Keep only non-service AD users for addressbook sync
+      ansible.builtin.set_fact:
+        nextcloud_addressbook_user_rows: >-
+          {{ ad_nextcloud_addressbook_users.stdout_lines
+             | reject('match', '^(' ~ (nextcloud_addressbook_excluded_users | join('|')) ~ ')\t')
+             | list }}
+
+- name: Sync AD users into Nextcloud system addressbook
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_addressbook_source_host: "{{ groups['primary_dc'][0] }}"
+
+  tasks:
+    - name: Ensure Nextcloud Contacts app is installed and enabled
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if sudo -u www-data php {{ nextcloud_occ }} app:list | awk '/Enabled:/{enabled=1; disabled=0; next} /Disabled:/{enabled=0; disabled=1; next} enabled && /- contacts:/ { found_enabled=1 } disabled && /- contacts:/ { found_disabled=1 } END { exit !(found_enabled || found_disabled) }'; then
+          if sudo -u www-data php {{ nextcloud_occ }} app:list | awk '/Enabled:/{enabled=1; disabled=0; next} /Disabled:/{enabled=0; disabled=1; next} enabled && /- contacts:/ { found=1 } END { exit !found }'; then
+            echo unchanged
+          else
+            sudo -u www-data php {{ nextcloud_occ }} app:enable contacts
+            echo enabled
+          fi
+        else
+          sudo -u www-data php {{ nextcloud_occ }} app:install contacts
+          echo installed
+        fi
+      args:
+        executable: /bin/bash
+      register: nextcloud_contacts_app
+      changed_when: nextcloud_contacts_app.stdout is search('installed|enabled')
+
+    - name: Write AD addressbook sync input
+      ansible.builtin.copy:
+        dest: /tmp/nextcloud-ad-addressbook.tsv
+        owner: root
+        group: root
+        mode: "0600"
+        content: "{{ hostvars[nextcloud_addressbook_source_host].nextcloud_addressbook_user_rows | join('\n') ~ '\n' }}"
+
+    - name: Ensure AD users exist locally with mail profile data
+      ansible.builtin.shell: |
+        set -euo pipefail
+        changed=0
+        while IFS=$'	' read -r uid display mail; do
+          [ -n "${uid:-}" ] || continue
+          if sudo -u www-data php {{ nextcloud_occ }} user:info "$uid" >/dev/null 2>&1; then
+            echo "exists $uid"
+          else
+            OC_PASS="$(openssl rand -base64 36)" sudo -E -u www-data php {{ nextcloud_occ }} user:add --password-from-env --display-name "$display" "$uid" >/dev/null
+            echo "created $uid"
+            changed=1
+          fi
+          sudo -u www-data php {{ nextcloud_occ }} user:setting "$uid" settings email "$mail" >/dev/null
+          sudo -u www-data php {{ nextcloud_occ }} user:setting "$uid" settings display_name "$display" >/dev/null || true
+        done < /tmp/nextcloud-ad-addressbook.tsv
+        if [ "$changed" = "1" ]; then echo changed; else echo unchanged; fi
+      args:
+        executable: /bin/bash
+      register: nextcloud_addressbook_user_sync
+      changed_when: nextcloud_addressbook_user_sync.stdout_lines | select('equalto', 'changed') | list | length > 0
+
+    - name: Expose Nextcloud system addressbook
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} config:system:set system_addressbook_exposed --type=boolean --value=true
+      changed_when: true
+
+    - name: Sync Nextcloud system addressbook
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} dav:sync-system-addressbook
+      register: nextcloud_system_addressbook_sync
+      changed_when: true
+
+    - name: Show synced Nextcloud users
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} user:list --output=json_pretty
+        sudo -u www-data php {{ nextcloud_occ }} config:system:get system_addressbook_exposed
+      register: nextcloud_addressbook_summary
+      changed_when: false
+
+    - name: Print Nextcloud addressbook summary
+      ansible.builtin.debug:
+        var: nextcloud_addressbook_summary.stdout_lines

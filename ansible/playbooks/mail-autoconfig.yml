@@ -1,4 +1,31 @@
 ---
+- name: Build Postfix mailbox map from AD users
+  hosts: primary_dc
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/mail.yml
+
+  vars:
+    mail_domain: "{{ postfix_domain | default(domain_name) }}"
+
+  tasks:
+    - name: Read AD users with mail addresses
+      ansible.builtin.shell: |
+        set -e
+        samba-tool user list | while read -r user; do
+          [ -n "$user" ] || continue
+          samba-tool user show "$user" 2>/dev/null | awk -v domain="{{ mail_domain }}" '
+            /^sAMAccountName:/ { sam=$2 }
+            /^mail:/ { mail=$2 }
+            END { if (sam != "" && mail ~ ("@" domain "$")) printf "%s %s/%s/Maildir/\n", mail, domain, sam }
+          '
+        done | sort -u
+      register: ad_mailbox_map_result
+      changed_when: false
+
 - name: Configure mail client autoconfig and submission
   hosts: mail_server
   become: true
@@ -11,6 +38,8 @@
     mail_domain: "{{ postfix_domain | default(domain_name) }}"
     mail_host: mail01.toss.lan
     mail_ip: 192.168.0.80
+    mail_virtual_uid: 5000
+    mail_virtual_gid: 5000
     autoconfig_root: /var/www/autoconfig
     mail_tls_ca_key: /etc/ssl/private/toss-mail-ca.key
     mail_tls_ca_cert: /etc/ssl/certs/toss-mail-ca.crt
@@ -44,11 +73,46 @@
         group: "{{ mail_gid }}"
         mode: "0770"
 
+    - name: Configure Dovecot special-use mailboxes
+      ansible.builtin.copy:
+        dest: /etc/dovecot/conf.d/15-mailboxes.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          namespace inbox {
+            mailbox Drafts {
+              auto = subscribe
+              special_use = \Drafts
+            }
+
+            mailbox Junk {
+              auto = subscribe
+              special_use = \Junk
+            }
+
+            mailbox Sent {
+              auto = subscribe
+              special_use = \Sent
+            }
+
+            mailbox Trash {
+              auto = subscribe
+              special_use = \Trash
+            }
+
+            mailbox Archive {
+              auto = subscribe
+              special_use = \Archive
+            }
+          }
+      register: dovecot_mailbox_config
+
     - name: Restart Dovecot when mail location changed
       ansible.builtin.systemd:
         name: dovecot
         state: restarted
-      when: dovecot_mail_config.changed
+      when: dovecot_mail_config.changed or dovecot_mailbox_config.changed
 
     - name: Ensure private TLS directory permissions
       ansible.builtin.file:
@@ -230,8 +294,15 @@
 
     - name: Configure Postfix TLS and Dovecot SASL
       ansible.builtin.command:
-        cmd: postconf -e {{ item }}
+        cmd: postconf -e "{{ item }}"
       loop:
+        - mydestination=$myhostname, localhost.$mydomain, localhost
+        - virtual_mailbox_domains={{ mail_domain }}
+        - virtual_mailbox_maps=hash:/etc/postfix/virtual_mailbox_maps
+        - virtual_transport=virtual
+        - virtual_mailbox_base=/var/vmail
+        - virtual_uid_maps=static:{{ mail_virtual_uid }}
+        - virtual_gid_maps=static:{{ mail_virtual_gid }}
         - smtpd_tls_cert_file={{ mail_tls_cert }}
         - smtpd_tls_key_file={{ mail_tls_key }}
         - smtpd_tls_security_level=may
@@ -240,6 +311,79 @@
         - smtpd_sasl_auth_enable=yes
         - smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject_unauth_destination
       changed_when: true
+
+    - name: Install AD mailbox map for the internal mail domain
+      ansible.builtin.copy:
+        dest: /etc/postfix/virtual_mailbox_maps
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ hostvars[groups['primary_dc'][0]].ad_mailbox_map_result.stdout ~ '\n' }}"
+      register: postfix_virtual_mailbox_maps
+
+    - name: Rebuild Postfix virtual mailbox hash map
+      ansible.builtin.command:
+        cmd: postmap /etc/postfix/virtual_mailbox_maps
+      when: postfix_virtual_mailbox_maps.changed
+
+
+    - name: Ensure special-use Maildir folders exist for internal mailbox users
+      ansible.builtin.shell: |
+        set -eu
+        state_file=$(mktemp)
+        printf '0' > "$state_file"
+        awk 'NF >= 2 { print $2 }' /etc/postfix/virtual_mailbox_maps | while read -r mailbox_path; do
+          mailbox_path="${mailbox_path%/}"
+          user_dir="${mailbox_path%/Maildir}"
+          maildir="/var/vmail/${user_dir}/Maildir"
+
+          for folder in Sent Drafts Trash Junk Archive; do
+            folder_path="${maildir}/.${folder}"
+            if [ ! -d "$folder_path" ]; then
+              printf '1' > "$state_file"
+            elif [ "$(stat -c '%U:%G' "$folder_path")" != "{{ mail_uid }}:{{ mail_gid }}" ]; then
+              printf '1' > "$state_file"
+            fi
+            install -d -o {{ mail_uid }} -g {{ mail_gid }} -m 0700 "$folder_path"
+
+            for subdir in cur new tmp; do
+              path="${folder_path}/${subdir}"
+              if [ ! -d "$path" ]; then
+                printf '1' > "$state_file"
+              elif [ "$(stat -c '%U:%G' "$path")" != "{{ mail_uid }}:{{ mail_gid }}" ]; then
+                printf '1' > "$state_file"
+              fi
+              install -d -o {{ mail_uid }} -g {{ mail_gid }} -m 0700 "$path"
+            done
+          done
+
+          subscriptions="${maildir}/subscriptions"
+          if [ ! -f "$subscriptions" ]; then
+            printf '1' > "$state_file"
+            install -o {{ mail_uid }} -g {{ mail_gid }} -m 0600 /dev/null "$subscriptions"
+          fi
+
+          for folder in Sent Drafts Trash Junk Archive; do
+            if ! grep -Fxq "$folder" "$subscriptions"; then
+              printf '1' > "$state_file"
+              printf '%s\n' "$folder" >> "$subscriptions"
+            fi
+          done
+
+          chown {{ mail_uid }}:{{ mail_gid }} "$subscriptions"
+          chmod 0600 "$subscriptions"
+          rmdir "${maildir}/{cur,new,tmp}" 2>/dev/null || true
+        done
+        if [ "$(cat "$state_file")" = 1 ]; then
+          echo changed
+        else
+          echo ok
+        fi
+        rm -f "$state_file"
+      args:
+        executable: /bin/bash
+      changed_when: "'changed' in special_use_maildirs.stdout"
+      register: special_use_maildirs
 
     - name: Enable Postfix submission service
       ansible.builtin.command:
@@ -255,7 +399,8 @@
         - submission/inet/smtpd_sasl_auth_enable=yes
         - submission/inet/smtpd_tls_auth_only=yes
         - submission/inet/smtpd_reject_unlisted_recipient=no
-        - submission/inet/smtpd_client_restrictions=permit_sasl_authenticated,reject
+        - submission/inet/smtpd_client_restrictions=
+        - submission/inet/smtpd_relay_restrictions=permit_sasl_authenticated,reject
         - submission/inet/smtpd_recipient_restrictions=permit_sasl_authenticated,reject
       changed_when: true
 
@@ -295,6 +440,8 @@
 
   vars:
     mail_ip: 192.168.0.80
+    mail_virtual_uid: 5000
+    mail_virtual_gid: 5000
     mail_ca_source_host: "{{ groups['mail_server'][0] }}"
 
   tasks:

@@ -75,7 +75,7 @@
 
 ## 7. Mail 연동
 
-`mail01`은 Postfix/Dovecot 기반이며 LDAP 설정은 `ldaps://192.168.0.20:636`을 기준으로 한다. Keycloak의 Samba AD federation도 AD CA를 신뢰한 뒤 `ldaps://dc01.toss.lan:636`을 사용한다. Nextcloud는 `mail.toss.lan` SMTP 설정으로 내부 알림 메일을 보낸다.
+`mail01`은 Postfix/Dovecot 기반이며 LDAP 설정은 `ldaps://192.168.0.20:636`을 기준으로 한다. 내부 도메인 `toss.lan` 수신은 AD 사용자 `mail` 속성에서 생성한 Postfix `hash:/etc/postfix/virtual_mailbox_maps`를 사용해 `/var/vmail/toss.lan/<user>/Maildir`로 전달한다. Dovecot은 `Sent`, `Drafts`, `Trash`, `Junk`, `Archive` special-use 메일함을 자동 구독하도록 설정하고, `mail-autoconfig.yml`이 기존 내부 메일 사용자별 Maildir 폴더를 보정한다. Keycloak의 Samba AD federation도 AD CA를 신뢰한 뒤 `ldaps://dc01.toss.lan:636`을 사용한다. Nextcloud는 `mail.toss.lan` SMTP 설정으로 내부 알림 메일을 보낸다.
 
 ## 8. TLS 인증서
 
@@ -103,6 +103,8 @@ cd /home/sysadmin/homelab-infra/ansible
 ansible-playbook playbooks/nextcloud-oidc-sso.yml
 ansible-playbook playbooks/nextcloud-oidc-groups.yml
 ansible-playbook playbooks/nextcloud-integrations.yml
+ansible-playbook playbooks/mail-autoconfig.yml
+ansible-playbook playbooks/nextcloud-ad-addressbook.yml
 ```
 
-브라우저 검증은 `https://192.168.0.50` 접속 후 OIDC 로그인 버튼을 누르고 AD 계정으로 로그인한다. 로그인 후 `occ user:list`, `occ group:list`, `occ files_external:list --output=json_pretty`로 생성 사용자, 그룹, storage mount를 확인한다.
+브라우저 검증은 `https://192.168.0.50` 접속 후 OIDC 로그인 버튼을 누르고 AD 계정으로 로그인한다. 로그인 후 `occ user:list`, `occ group:list`, `occ files_external:list --output=json_pretty`로 생성 사용자, 그룹, storage mount를 확인한다. AD 사용자 주소록은 `playbooks/nextcloud-ad-addressbook.yml`이 일반 AD 사용자 mail/displayName을 Nextcloud profile에 동기화한 뒤 `dav:sync-system-addressbook`으로 갱신한다. `playbooks/nextcloud-ad-addressbook-schedule.yml`은 이 동기화를 Ansible 컨트롤러 사용자 crontab에 15분 주기로 등록한다.

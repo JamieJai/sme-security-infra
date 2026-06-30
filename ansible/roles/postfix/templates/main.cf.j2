@@ -1,2 +1,36 @@
-virtual_transport = lmtp:unix:private/dovecot-lmtp
-virtual_mailbox_domains = toss.lan
+myhostname = mail01.toss.lan
+mydomain = {{ postfix_domain | default('toss.lan') }}
+myorigin = $mydomain
+
+inet_interfaces = all
+inet_protocols = ipv4
+
+mydestination = $myhostname, localhost.$mydomain, localhost
+virtual_mailbox_domains = {{ postfix_domain | default('toss.lan') }}
+virtual_mailbox_maps = hash:/etc/postfix/virtual_mailbox_maps
+virtual_transport = virtual
+virtual_mailbox_base = /var/vmail
+virtual_uid_maps = static:{{ mail_virtual_uid | default(5000) }}
+virtual_gid_maps = static:{{ mail_virtual_gid | default(5000) }}
+
+mynetworks = 127.0.0.0/8, 192.168.0.0/24
+
+smtpd_banner = $myhostname ESMTP
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+
+relayhost =
+
+mailbox_size_limit = 0
+recipient_delimiter = +
+compatibility_level = 3.6
+
+smtpd_tls_cert_file = /etc/ssl/certs/mail01.toss.lan.crt
+smtpd_tls_key_file = /etc/ssl/private/mail01.toss.lan.key
+smtpd_tls_security_level = may
+
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_recipient_restrictions = permit_mynetworks,permit_sasl_authenticated,reject_unauth_destination

@@ -16,6 +16,12 @@
     dest: /etc/dovecot/conf.d/10-mail.conf
   notify: restart dovecot
 
+- name: Deploy special-use mailbox config
+  ansible.builtin.template:
+    src: 15-mailboxes.conf.j2
+    dest: /etc/dovecot/conf.d/15-mailboxes.conf
+  notify: restart dovecot
+
 - name: Deploy auth config
   ansible.builtin.template:
     src: 10-auth.conf.j2

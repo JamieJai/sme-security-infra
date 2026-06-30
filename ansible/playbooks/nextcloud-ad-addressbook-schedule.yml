@@ -1,0 +1,22 @@
+---
+- name: Schedule Nextcloud AD addressbook sync
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    homelab_repo_root: "{{ playbook_dir | dirname | dirname }}"
+    addressbook_sync_minute: "*/15"
+    addressbook_sync_log: "{{ lookup('env', 'HOME') }}/.cache/nextcloud-ad-addressbook-sync.log"
+
+  tasks:
+    - name: Schedule Nextcloud AD addressbook sync in the current user's crontab
+      ansible.builtin.cron:
+        name: nextcloud-ad-addressbook-sync
+        minute: "{{ addressbook_sync_minute }}"
+        job: >-
+          cd {{ homelab_repo_root }} &&
+          /usr/bin/flock -n /tmp/nextcloud-ad-addressbook-sync.lock
+          /usr/bin/ansible-playbook -i ansible/inventory/hosts
+          ansible/playbooks/nextcloud-ad-addressbook.yml
+          >> {{ addressbook_sync_log }} 2>&1
