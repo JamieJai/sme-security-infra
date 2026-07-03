@@ -1,6 +1,6 @@
 ---
 - name: Read Samba AD LDAPS CA certificate
-  hosts: primary_dc
+  hosts: primary_dc:secondary_dc
   become: true
 
   vars:
@@ -16,17 +16,24 @@
   hosts: iam_server
   become: true
 
+  vars_files:
+    - ../group_vars/keycloak-bind-vault.yml
+
   vars:
     keycloak_path: /opt/keycloak
     keycloak_realm: homelab
     keycloak_admin_user: admin
     keycloak_ldap_provider_name: Samba-AD
-    keycloak_ldap_url: ldaps://dc01.toss.lan:636
-    keycloak_ad_ca_source_host: "{{ groups['primary_dc'][0] }}"
-    keycloak_ad_ca_cert: /usr/local/share/ca-certificates/toss-ad-ca.crt
+    keycloak_ldap_url: ldaps://keycloak-ldap-ha.toss.lan:1636
+    keycloak_ad_ca_source_host: "{{ groups['secondary_dc'][0] }}"
+    keycloak_dc01_ca_source_host: "{{ groups['primary_dc'][0] }}"
+    keycloak_dc01_ca_cert: /usr/local/share/ca-certificates/toss-ad-dc01-ca.crt
+    java_dc01_ca_alias: toss-ad-dc01-ca
+    legacy_dc01_ca_cert: /usr/local/share/ca-certificates/toss-ad-ca.crt
+    keycloak_ad_ca_cert: /usr/local/share/ca-certificates/toss-ad-dc02-ca.crt
     java_cacerts_path: /etc/ssl/certs/java/cacerts
     java_cacerts_password: changeit
-    java_ad_ca_alias: toss-ad-ca
+    java_ad_ca_alias: toss-ad-dc02-ca
 
   tasks:
     - name: Install LDAP and Java trust tooling
@@ -36,6 +43,21 @@
           - ca-certificates
         state: present
         update_cache: true
+
+    - name: Trust dc01 Samba AD CA in OS trust store
+      ansible.builtin.copy:
+        dest: "{{ keycloak_dc01_ca_cert }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ hostvars[keycloak_dc01_ca_source_host].samba_ad_ca_certificate.content | b64decode }}"
+      register: keycloak_dc01_ca_copy
+
+    - name: Remove legacy dc01 CA file
+      ansible.builtin.file:
+        path: "{{ legacy_dc01_ca_cert }}"
+        state: absent
+      register: legacy_dc01_ca_removed
 
     - name: Trust Samba AD CA in OS trust store
       ansible.builtin.copy:
@@ -49,7 +71,40 @@
     - name: Update OS CA trust store
       ansible.builtin.command:
         cmd: update-ca-certificates
-      when: keycloak_ad_ca_copy.changed
+      when: keycloak_ad_ca_copy.changed or keycloak_dc01_ca_copy.changed or legacy_dc01_ca_removed.changed
+
+    - name: Check Java truststore for dc01 Samba AD CA
+      ansible.builtin.command:
+        cmd: >-
+          keytool -list
+          -keystore {{ java_cacerts_path }}
+          -storepass {{ java_cacerts_password }}
+          -alias {{ java_dc01_ca_alias }}
+      register: java_dc01_ca_lookup
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Remove stale dc01 CA from Java truststore
+      ansible.builtin.command:
+        cmd: >-
+          keytool -delete
+          -alias {{ java_dc01_ca_alias }}
+          -keystore {{ java_cacerts_path }}
+          -storepass {{ java_cacerts_password }}
+      when: keycloak_dc01_ca_copy.changed and java_dc01_ca_lookup.rc == 0
+      no_log: true
+
+    - name: Import dc01 Samba AD CA into Java truststore
+      ansible.builtin.command:
+        cmd: >-
+          keytool -importcert -noprompt -trustcacerts
+          -alias {{ java_dc01_ca_alias }}
+          -file {{ keycloak_dc01_ca_cert }}
+          -keystore {{ java_cacerts_path }}
+          -storepass {{ java_cacerts_password }}
+      when: keycloak_dc01_ca_copy.changed or java_dc01_ca_lookup.rc != 0
+      no_log: true
 
     - name: Check Java truststore for Samba AD CA
       ansible.builtin.command:
@@ -133,6 +188,7 @@
             | combine({
                 'config': (keycloak_ldap_provider_current.stdout | from_json).config | combine({
                   'connectionUrl': [keycloak_ldap_url],
+                  'bindCredential': [keycloak_bind_password],
                   'useTruststoreSpi': ['ldapsOnly']
                 })
               }, recursive=True)
@@ -169,3 +225,9 @@
         msg:
           - "LDAPS search returned {{ keycloak_ldaps_check.stdout_lines | length }} lines."
           - "Keycloak LDAP federation now uses {{ keycloak_ldap_url }}."
+
+    - name: Remove temporary LDAP provider payload
+      ansible.builtin.file:
+        path: /tmp/keycloak-ldap-ldaps.json
+        state: absent
+      no_log: true

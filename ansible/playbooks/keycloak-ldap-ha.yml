@@ -1,0 +1,288 @@
+---
+- name: Read Samba AD LDAPS CA certificates
+  hosts: primary_dc:secondary_dc
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read Samba AD CA certificate
+      ansible.builtin.slurp:
+        src: /var/lib/samba/private/tls/ca.pem
+      register: samba_ad_ca_certificate
+
+- name: Configure local HAProxy for Keycloak LDAP HA
+  hosts: iam_server
+  become: true
+  vars_files:
+    - ../group_vars/keycloak-bind-vault.yml
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    keycloak_ldap_provider_name: Samba-AD
+    keycloak_ldap_ha_name: keycloak-ldap-ha.toss.lan
+    keycloak_ldap_ha_port: 1636
+    keycloak_ldap_url: "ldaps://{{ keycloak_ldap_ha_name }}:{{ keycloak_ldap_ha_port }}"
+    keycloak_ldap_ha_dir: /etc/haproxy/keycloak-ldap-ha
+    java_cacerts_path: /etc/ssl/certs/java/cacerts
+    dc01_host: "{{ groups['primary_dc'][0] }}"
+    dc02_host: "{{ groups['secondary_dc'][0] }}"
+
+  tasks:
+    - name: Install HAProxy and TLS tools
+      ansible.builtin.apt:
+        name: [haproxy, openssl, ldap-utils, netcat-openbsd]
+        state: present
+        update_cache: true
+
+    - name: Create LDAP HA certificate directory
+      ansible.builtin.file:
+        path: "{{ keycloak_ldap_ha_dir }}"
+        state: directory
+        owner: root
+        group: haproxy
+        mode: "0750"
+
+    - name: Install Samba AD CA bundle for backend verification
+      ansible.builtin.copy:
+        dest: "{{ keycloak_ldap_ha_dir }}/samba-ad-ca-bundle.pem"
+        owner: root
+        group: haproxy
+        mode: "0640"
+        content: |
+          {{ hostvars[dc01_host].samba_ad_ca_certificate.content | b64decode }}
+          {{ hostvars[dc02_host].samba_ad_ca_certificate.content | b64decode }}
+      notify: Restart HAProxy
+
+    - name: Generate local LDAP HA endpoint key
+      ansible.builtin.command:
+        cmd: openssl genrsa -out {{ keycloak_ldap_ha_dir }}/server.key 3072
+        creates: "{{ keycloak_ldap_ha_dir }}/server.key"
+      no_log: true
+
+    - name: Generate self-signed local LDAP HA endpoint certificate
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -x509 -new -sha256 -days 825
+          -key {{ keycloak_ldap_ha_dir }}/server.key
+          -out {{ keycloak_ldap_ha_dir }}/server.crt
+          -subj /CN={{ keycloak_ldap_ha_name }}
+          -addext subjectAltName=DNS:{{ keycloak_ldap_ha_name }}
+          -addext basicConstraints=critical,CA:TRUE
+          -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign
+          -addext extendedKeyUsage=serverAuth
+        creates: "{{ keycloak_ldap_ha_dir }}/server.crt"
+      notify: Restart HAProxy
+
+    - name: Assemble HAProxy endpoint PEM
+      ansible.builtin.shell: |
+        set -eu
+        target={{ keycloak_ldap_ha_dir }}/server.pem
+        candidate="$(mktemp)"
+        trap 'rm -f "$candidate"' EXIT
+        cat {{ keycloak_ldap_ha_dir }}/server.key {{ keycloak_ldap_ha_dir }}/server.crt > "$candidate"
+        if [ ! -f "$target" ] || ! cmp -s "$candidate" "$target"; then
+          install -o root -g haproxy -m 0640 "$candidate" "$target"
+          echo changed
+        fi
+      args:
+        executable: /bin/bash
+      register: keycloak_ldap_ha_pem
+      changed_when: "'changed' in keycloak_ldap_ha_pem.stdout"
+      no_log: true
+      notify: Restart HAProxy
+
+    - name: Resolve local LDAP HA endpoint name
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "^127\\.0\\.0\\.1\\s+{{ keycloak_ldap_ha_name | regex_escape }}(?:\\s|$)"
+        line: "127.0.0.1 {{ keycloak_ldap_ha_name }}"
+
+    - name: Trust local LDAP HA endpoint in OS trust store
+      ansible.builtin.copy:
+        src: "{{ keycloak_ldap_ha_dir }}/server.crt"
+        dest: /usr/local/share/ca-certificates/keycloak-ldap-ha.crt
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      register: keycloak_ldap_ha_os_ca
+
+    - name: Update OS CA trust store
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      when: keycloak_ldap_ha_os_ca.changed
+
+    - name: Check Java truststore for local LDAP HA certificate
+      ansible.builtin.command:
+        cmd: keytool -list -cacerts -storepass changeit -alias keycloak-ldap-ha
+      register: keycloak_ldap_ha_java_ca
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Import local LDAP HA certificate into Java truststore
+      ansible.builtin.command:
+        cmd: >-
+          keytool -importcert -noprompt -trustcacerts
+          -alias keycloak-ldap-ha
+          -file {{ keycloak_ldap_ha_dir }}/server.crt
+          -keystore {{ java_cacerts_path }}
+          -storepass changeit
+      when: keycloak_ldap_ha_java_ca.rc != 0
+      no_log: true
+
+    - name: Install HAProxy LDAP HA configuration
+      ansible.builtin.copy:
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          global
+              log /dev/log local0
+              log /dev/log local1 notice
+              user haproxy
+              group haproxy
+              daemon
+              stats socket /run/haproxy/admin.sock mode 660 level admin
+
+          defaults
+              log global
+              mode tcp
+              option tcplog
+              timeout connect 5s
+              timeout client 30s
+              timeout server 30s
+
+          frontend keycloak_ldaps
+              bind 127.0.0.1:{{ keycloak_ldap_ha_port }} ssl crt {{ keycloak_ldap_ha_dir }}/server.pem ssl-min-ver TLSv1.2
+              default_backend samba_ad_ldaps
+
+          backend samba_ad_ldaps
+              option tcp-check
+              server dc02 192.168.0.21:636 check inter 2s fall 3 rise 2 ssl verify required ca-file {{ keycloak_ldap_ha_dir }}/samba-ad-ca-bundle.pem verifyhost dc02.toss.lan
+              server dc01 192.168.0.20:636 check inter 2s fall 3 rise 2 backup ssl verify required ca-file {{ keycloak_ldap_ha_dir }}/samba-ad-ca-bundle.pem verifyhost dc01.toss.lan
+      notify: Restart HAProxy
+
+    - name: Validate HAProxy configuration
+      ansible.builtin.command:
+        cmd: haproxy -c -f /etc/haproxy/haproxy.cfg
+      changed_when: false
+
+    - name: Apply HAProxy changes before verification
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start HAProxy
+      ansible.builtin.systemd:
+        name: haproxy
+        enabled: true
+        state: started
+
+    - name: Verify local LDAP HA endpoint
+      ansible.builtin.command:
+        cmd: ldapsearch -H {{ keycloak_ldap_url }} -x -LLL -s base -b "" namingContexts
+      changed_when: false
+
+    - name: Read Keycloak admin password from systemd unit
+      ansible.builtin.shell: |
+        systemctl cat keycloak.service | sed -n 's/^Environment="KEYCLOAK_ADMIN_PASSWORD=\(.*\)"/\1/p' | tail -1
+      register: keycloak_admin_password_result
+      changed_when: false
+      no_log: true
+
+    - name: Authenticate to Keycloak CLI
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh config credentials
+          --server http://localhost:8080 --realm master
+          --user {{ keycloak_admin_user }}
+          --password {{ keycloak_admin_password_result.stdout }}
+      changed_when: false
+      no_log: true
+
+    - name: Find Samba AD LDAP federation id
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get components -r {{ keycloak_realm }} |
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((c.get("id","") for c in data if c.get("name") == "{{ keycloak_ldap_provider_name }}" and c.get("providerId") == "ldap"), ""), end="")'
+      register: keycloak_ldap_provider_id
+      changed_when: false
+
+    - name: Ensure Samba AD LDAP federation exists
+      ansible.builtin.assert:
+        that: keycloak_ldap_provider_id.stdout | length > 0
+
+    - name: Read current Keycloak LDAP federation
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh get components/{{ keycloak_ldap_provider_id.stdout }}
+          -r {{ keycloak_realm }}
+      register: keycloak_ldap_provider_current
+      changed_when: false
+      no_log: true
+
+    - name: Determine whether Keycloak LDAP endpoint needs updating
+      ansible.builtin.set_fact:
+        keycloak_ldap_ha_update_required: >-
+          {{
+            ((keycloak_ldap_provider_current.stdout | from_json).config.connectionUrl | first)
+            != keycloak_ldap_url
+          }}
+      no_log: true
+
+    - name: Build updated Keycloak LDAP federation payload
+      ansible.builtin.copy:
+        dest: /tmp/keycloak-ldap-ha.json
+        owner: root
+        group: root
+        mode: "0600"
+        content: >-
+          {{
+            keycloak_ldap_provider_current.stdout
+            | from_json
+            | combine({
+                'config': (keycloak_ldap_provider_current.stdout | from_json).config | combine({
+                  'connectionUrl': [keycloak_ldap_url],
+                  'bindCredential': [keycloak_bind_password],
+                  'useTruststoreSpi': ['ldapsOnly']
+                })
+              }, recursive=True)
+            | to_json
+          }}
+      when: keycloak_ldap_ha_update_required | bool
+      no_log: true
+
+    - name: Update Keycloak LDAP federation for local HA endpoint
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh update components/{{ keycloak_ldap_provider_id.stdout }}
+          -r {{ keycloak_realm }} -f /tmp/keycloak-ldap-ha.json
+      when: keycloak_ldap_ha_update_required | bool
+      no_log: true
+
+    - name: Restart Keycloak to clear LDAP connection pool
+      ansible.builtin.systemd:
+        name: keycloak
+        state: restarted
+      when: keycloak_ldap_ha_update_required | bool
+
+    - name: Wait for Keycloak realm endpoint
+      ansible.builtin.uri:
+        url: http://localhost:8080/realms/{{ keycloak_realm }}/.well-known/openid-configuration
+        status_code: 200
+      register: keycloak_ready
+      retries: 30
+      delay: 5
+      until: keycloak_ready.status == 200
+
+    - name: Remove temporary LDAP provider payload
+      ansible.builtin.file:
+        path: /tmp/keycloak-ldap-ha.json
+        state: absent
+      no_log: true
+
+  handlers:
+    - name: Restart HAProxy
+      ansible.builtin.systemd:
+        name: haproxy
+        state: restarted
+        enabled: true
