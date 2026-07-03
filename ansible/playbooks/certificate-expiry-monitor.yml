@@ -1,0 +1,87 @@
+---
+- name: Configure certificate expiry monitoring
+  hosts: primary_dc:secondary_dc:iam_server
+  become: true
+  serial: 1
+
+  vars:
+    certificate_expiry_warning_days: 60
+    certificate_expiry_critical_days: 30
+    certificate_expiry_schedule: "*-*-* 06:15:00"
+    samba_certificate_files:
+      - label: Samba LDAPS server certificate
+        path: /var/lib/samba/private/tls/cert.pem
+      - label: Samba local CA certificate
+        path: /var/lib/samba/private/tls/ca.pem
+    keycloak_certificate_files:
+      - label: Keycloak LDAP HA endpoint certificate
+        path: /etc/haproxy/keycloak-ldap-ha/server.crt
+    certificate_expiry_files: >-
+      {{
+        samba_certificate_files
+        if inventory_hostname in
+          (groups['primary_dc'] + groups['secondary_dc'])
+        else keycloak_certificate_files
+      }}
+
+  tasks:
+    - name: Validate certificate monitoring thresholds
+      ansible.builtin.assert:
+        that:
+          - certificate_expiry_critical_days | int > 0
+          - >-
+            certificate_expiry_warning_days | int
+            > certificate_expiry_critical_days | int
+          - certificate_expiry_files | length > 0
+
+    - name: Install certificate inspection tools
+      ansible.builtin.apt:
+        name: openssl
+        state: present
+
+    - name: Install certificate expiry check
+      ansible.builtin.template:
+        src: ../templates/check-certificate-expiry.sh.j2
+        dest: /usr/local/sbin/check-certificate-expiry
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install certificate expiry service
+      ansible.builtin.template:
+        src: ../templates/certificate-expiry-monitor.service.j2
+        dest: /etc/systemd/system/certificate-expiry-monitor.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Install certificate expiry timer
+      ansible.builtin.template:
+        src: ../templates/certificate-expiry-monitor.timer.j2
+        dest: /etc/systemd/system/certificate-expiry-monitor.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Apply systemd unit changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable certificate expiry timer
+      ansible.builtin.systemd:
+        name: certificate-expiry-monitor.timer
+        state: started
+        enabled: true
+      when: not ansible_check_mode
+
+    - name: Run initial certificate expiry check
+      ansible.builtin.command:
+        cmd: /usr/local/sbin/check-certificate-expiry
+      changed_when: false
+      when: not ansible_check_mode
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

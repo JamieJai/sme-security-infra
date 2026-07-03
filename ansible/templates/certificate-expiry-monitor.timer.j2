@@ -1,0 +1,11 @@
+[Unit]
+Description=Check managed certificate expiry daily
+
+[Timer]
+OnCalendar={{ certificate_expiry_schedule }}
+Persistent=true
+RandomizedDelaySec=30m
+Unit=certificate-expiry-monitor.service
+
+[Install]
+WantedBy=timers.target

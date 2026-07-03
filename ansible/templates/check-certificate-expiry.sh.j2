@@ -1,0 +1,51 @@
+#!/bin/bash
+set -u
+
+readonly warning_seconds=$(({{ certificate_expiry_warning_days | int }} * 86400))
+readonly critical_seconds=$(({{ certificate_expiry_critical_days | int }} * 86400))
+status=0
+
+check_certificate() {
+  local label="$1"
+  local path="$2"
+  local end_date end_epoch now_epoch remaining_days
+
+  if [[ ! -r "${path}" ]]; then
+    echo "CRITICAL: ${label}: missing or unreadable: ${path}" >&2
+    status=1
+    return
+  fi
+
+  if ! end_date="$(openssl x509 -in "${path}" -noout -enddate 2>/dev/null)"; then
+    echo "CRITICAL: ${label}: invalid X.509 certificate: ${path}" >&2
+    status=1
+    return
+  fi
+
+  end_date="${end_date#notAfter=}"
+  if ! end_epoch="$(date --date="${end_date}" +%s 2>/dev/null)"; then
+    echo "CRITICAL: ${label}: cannot parse expiry: ${path}" >&2
+    status=1
+    return
+  fi
+
+  now_epoch="$(date +%s)"
+  remaining_days=$(( (end_epoch - now_epoch) / 86400 ))
+
+  if ! openssl x509 -in "${path}" -noout \
+    -checkend "${critical_seconds}" >/dev/null 2>&1; then
+    echo "CRITICAL: ${label}: expires ${end_date} (${remaining_days} days): ${path}" >&2
+    status=1
+  elif ! openssl x509 -in "${path}" -noout \
+    -checkend "${warning_seconds}" >/dev/null 2>&1; then
+    echo "WARNING: ${label}: expires ${end_date} (${remaining_days} days): ${path}"
+  else
+    echo "OK: ${label}: expires ${end_date} (${remaining_days} days): ${path}"
+  fi
+}
+
+{% for certificate in certificate_expiry_files %}
+check_certificate {{ certificate.label | quote }} {{ certificate.path | quote }}
+{% endfor %}
+
+exit "${status}"
