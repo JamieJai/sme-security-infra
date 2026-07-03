@@ -1,0 +1,16 @@
+[Unit]
+Description=Create and validate a Samba AD domain backup
+Requires=samba-ad-dc.service
+After=samba-ad-dc.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/samba-domain-backup
+User=root
+Group=root
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true

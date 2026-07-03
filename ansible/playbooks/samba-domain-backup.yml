@@ -1,0 +1,77 @@
+---
+- name: Configure verified Samba domain backups
+  hosts: active_dc
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    samba_backup_root: /var/backups/samba-domain
+    samba_backup_retention_days: 30
+    samba_backup_schedule: "*-*-* 03:30:00"
+
+  tasks:
+    - name: Require exactly one active DC
+      ansible.builtin.assert:
+        that:
+          - groups['active_dc'] | length == 1
+          - inventory_hostname == groups['active_dc'][0]
+
+    - name: Install backup archive dependencies
+      ansible.builtin.apt:
+        name:
+          - acl
+          - attr
+          - bzip2
+        state: present
+        update_cache: true
+
+    - name: Create protected Samba backup directory
+      ansible.builtin.file:
+        path: "{{ samba_backup_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install verified Samba backup script
+      ansible.builtin.template:
+        src: ../templates/samba-domain-backup.sh.j2
+        dest: /usr/local/sbin/samba-domain-backup
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install Samba backup service
+      ansible.builtin.template:
+        src: ../templates/samba-domain-backup.service.j2
+        dest: /etc/systemd/system/samba-domain-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Install Samba backup timer
+      ansible.builtin.template:
+        src: ../templates/samba-domain-backup.timer.j2
+        dest: /etc/systemd/system/samba-domain-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Apply systemd unit changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable Samba backup timer
+      ansible.builtin.systemd:
+        name: samba-domain-backup.timer
+        state: started
+        enabled: true
+      when: not ansible_check_mode
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

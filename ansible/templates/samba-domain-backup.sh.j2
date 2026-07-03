@@ -1,0 +1,99 @@
+#!/bin/bash
+set -Eeuo pipefail
+umask 077
+
+readonly backup_root={{ samba_backup_root | quote }}
+readonly retention_days={{ samba_backup_retention_days | int }}
+readonly timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+readonly final_dir="${backup_root}/${timestamp}"
+readonly staging_dir="${backup_root}/.${timestamp}.staging"
+restore_dir=""
+
+cleanup() {
+  if [[ -n "${restore_dir}" ]]; then
+    rm -rf -- "${restore_dir}"
+  fi
+  if [[ -d "${staging_dir}" ]]; then
+    rm -rf -- "${staging_dir}"
+  fi
+}
+trap cleanup EXIT
+
+install -d -o root -g root -m 0700 "${backup_root}" "${staging_dir}"
+
+samba-tool dbcheck --cross-ncs --quiet
+samba-tool ntacl sysvolcheck
+samba-tool domain backup online \
+  --server={{ inventory_hostname }}.{{ domain_name }} \
+  --targetdir="${staging_dir}" \
+  --machine-pass
+
+domain_backup="$(find "${staging_dir}" -maxdepth 1 -type f -name 'samba-backup-*.tar.*' -print -quit)"
+test -n "${domain_backup}"
+
+(
+  cd /var/lib/samba
+  getfacl --recursive -- sysvol >"${staging_dir}/sysvol.acls"
+  getfattr --recursive --dump --match='-' -- sysvol \
+    >"${staging_dir}/sysvol.xattrs"
+)
+
+tar --create --bzip2 \
+  --acls --xattrs --xattrs-include='*' --numeric-owner \
+  --file="${staging_dir}/sysvol.tar.bz2" \
+  --directory=/var/lib/samba sysvol
+
+restore_dir="$(mktemp -d /var/tmp/samba-restore-check.XXXXXX)"
+samba-tool domain backup restore \
+  --backup-file="${domain_backup}" \
+  --targetdir="${restore_dir}" \
+  --newservername=RESTORECHECK \
+  --host-ip=127.0.0.2
+
+test -s "${restore_dir}/etc/smb.conf"
+samba-tool dbcheck \
+  --configfile="${restore_dir}/etc/smb.conf" \
+  --cross-ncs --quiet
+
+install -d -o root -g root -m 0700 "${restore_dir}/sysvol-check"
+tar --extract --bzip2 \
+  --acls --xattrs --xattrs-include='*' --numeric-owner \
+  --file="${staging_dir}/sysvol.tar.bz2" \
+  --directory="${restore_dir}/sysvol-check"
+test -d "${restore_dir}/sysvol-check/sysvol"
+(
+  cd "${restore_dir}/sysvol-check"
+  getfacl --recursive -- sysvol >restored-sysvol.acls
+  getfattr --recursive --dump --match='-' -- sysvol >restored-sysvol.xattrs
+  diff -- "${staging_dir}/sysvol.acls" restored-sysvol.acls
+  diff -- "${staging_dir}/sysvol.xattrs" restored-sysvol.xattrs
+)
+
+(
+  cd "${staging_dir}"
+  sha256sum -- \
+    "$(basename "${domain_backup}")" \
+    sysvol.tar.bz2 sysvol.acls sysvol.xattrs >SHA256SUMS
+  sha256sum --check SHA256SUMS
+)
+
+cat >"${staging_dir}/MANIFEST" <<EOF
+created_utc=${timestamp}
+source_dc=$(hostname -f)
+samba_version=$(samba --version)
+restore_validation=passed
+sysvol_metadata_validation=passed
+EOF
+
+chown -R root:root "${staging_dir}"
+find "${staging_dir}" -type d -exec chmod 0700 {} +
+find "${staging_dir}" -type f -exec chmod 0600 {} +
+mv -- "${staging_dir}" "${final_dir}"
+
+find "${backup_root}" -mindepth 1 -maxdepth 1 -type d \
+  -name '????????T??????Z' -mtime "+${retention_days}" \
+  -exec rm -rf -- {} +
+
+rm -rf -- "${restore_dir}"
+restore_dir=""
+trap - EXIT

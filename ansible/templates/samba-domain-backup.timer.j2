@@ -1,0 +1,11 @@
+[Unit]
+Description=Run verified Samba AD domain backup daily
+
+[Timer]
+OnCalendar={{ samba_backup_schedule }}
+Persistent=true
+RandomizedDelaySec=15m
+Unit=samba-domain-backup.service
+
+[Install]
+WantedBy=timers.target
