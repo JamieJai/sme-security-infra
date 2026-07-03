@@ -1,6 +1,6 @@
 ---
 - name: Build Postfix mailbox map from AD users
-  hosts: primary_dc
+  hosts: active_dc
   become: true
   gather_facts: false
 
@@ -25,6 +25,7 @@
         done | sort -u
       register: ad_mailbox_map_result
       changed_when: false
+      check_mode: false
 
 - name: Configure mail client autoconfig and submission
   hosts: mail_server
@@ -289,12 +290,23 @@
       ansible.builtin.systemd:
         name: mail-autoconfig-http
         enabled: true
-        state: restarted
+        state: started
         daemon_reload: true
 
     - name: Configure Postfix TLS and Dovecot SASL
-      ansible.builtin.command:
-        cmd: postconf -e "{{ item }}"
+      ansible.builtin.shell: |
+        set -eu
+        key="${POSTCONF_SETTING%%=*}"
+        desired="${POSTCONF_SETTING#*=}"
+        current="$(postconf -h "$key")"
+        if [ "$current" != "$desired" ]; then
+          postconf -e "$POSTCONF_SETTING"
+          echo changed
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        POSTCONF_SETTING: "{{ item }}"
       loop:
         - mydestination=$myhostname, localhost.$mydomain, localhost
         - virtual_mailbox_domains={{ mail_domain }}
@@ -310,7 +322,8 @@
         - smtpd_sasl_path=private/auth
         - smtpd_sasl_auth_enable=yes
         - smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject_unauth_destination
-      changed_when: true
+      register: postfix_main_config
+      changed_when: "'changed' in postfix_main_config.stdout"
 
     - name: Install AD mailbox map for the internal mail domain
       ansible.builtin.copy:
@@ -318,7 +331,7 @@
         owner: root
         group: root
         mode: "0644"
-        content: "{{ hostvars[groups['primary_dc'][0]].ad_mailbox_map_result.stdout ~ '\n' }}"
+        content: "{{ hostvars[groups['active_dc'][0]].ad_mailbox_map_result.stdout ~ '\n' }}"
       register: postfix_virtual_mailbox_maps
 
     - name: Rebuild Postfix virtual mailbox hash map
@@ -337,11 +350,20 @@
           user_dir="${mailbox_path%/Maildir}"
           maildir="/var/vmail/${user_dir}/Maildir"
 
+          for path in "$maildir" "$maildir/cur" "$maildir/new" "$maildir/tmp"; do
+            if [ ! -d "$path" ]; then
+              printf '1' > "$state_file"
+            elif [ "$(stat -c '%U:%G:%a' "$path")" != "{{ mail_uid }}:{{ mail_gid }}:700" ]; then
+              printf '1' > "$state_file"
+            fi
+            install -d -o {{ mail_uid }} -g {{ mail_gid }} -m 0700 "$path"
+          done
+
           for folder in Sent Drafts Trash Junk Archive; do
             folder_path="${maildir}/.${folder}"
             if [ ! -d "$folder_path" ]; then
               printf '1' > "$state_file"
-            elif [ "$(stat -c '%U:%G' "$folder_path")" != "{{ mail_uid }}:{{ mail_gid }}" ]; then
+            elif [ "$(stat -c '%U:%G:%a' "$folder_path")" != "{{ mail_uid }}:{{ mail_gid }}:700" ]; then
               printf '1' > "$state_file"
             fi
             install -d -o {{ mail_uid }} -g {{ mail_gid }} -m 0700 "$folder_path"
@@ -350,7 +372,7 @@
               path="${folder_path}/${subdir}"
               if [ ! -d "$path" ]; then
                 printf '1' > "$state_file"
-              elif [ "$(stat -c '%U:%G' "$path")" != "{{ mail_uid }}:{{ mail_gid }}" ]; then
+              elif [ "$(stat -c '%U:%G:%a' "$path")" != "{{ mail_uid }}:{{ mail_gid }}:700" ]; then
                 printf '1' > "$state_file"
               fi
               install -d -o {{ mail_uid }} -g {{ mail_gid }} -m 0700 "$path"
@@ -361,6 +383,8 @@
           if [ ! -f "$subscriptions" ]; then
             printf '1' > "$state_file"
             install -o {{ mail_uid }} -g {{ mail_gid }} -m 0600 /dev/null "$subscriptions"
+          elif [ "$(stat -c '%U:%G:%a' "$subscriptions")" != "{{ mail_uid }}:{{ mail_gid }}:600" ]; then
+            printf '1' > "$state_file"
           fi
 
           for folder in Sent Drafts Trash Junk Archive; do
@@ -386,13 +410,34 @@
       register: special_use_maildirs
 
     - name: Enable Postfix submission service
-      ansible.builtin.command:
-        cmd: postconf -M submission/inet="submission inet n - y - - smtpd"
-      changed_when: true
+      ansible.builtin.shell: |
+        set -eu
+        current="$(postconf -M submission/inet 2>/dev/null || true)"
+        current_base="$(printf '%s\n' "$current" | awk '{ print $1, $2, $3, $4, $5, $6, $7, $8 }')"
+        desired="submission inet n - y - - smtpd"
+        if [ "$current_base" != "$desired" ]; then
+          postconf -M "submission/inet=$desired"
+          echo changed
+        fi
+      args:
+        executable: /bin/bash
+      register: postfix_submission_service
+      changed_when: "'changed' in postfix_submission_service.stdout"
 
     - name: Configure Postfix submission service options
-      ansible.builtin.command:
-        cmd: postconf -P {{ item }}
+      ansible.builtin.shell: |
+        set -eu
+        key="${POSTCONF_SETTING%%=*}"
+        desired="${POSTCONF_SETTING#*=}"
+        current="$(postconf -Ph "$key" 2>/dev/null || true)"
+        if [ "$current" != "$desired" ]; then
+          postconf -P "$POSTCONF_SETTING"
+          echo changed
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        POSTCONF_SETTING: "{{ item }}"
       loop:
         - submission/inet/syslog_name=postfix/submission
         - submission/inet/smtpd_tls_security_level=encrypt
@@ -402,12 +447,18 @@
         - submission/inet/smtpd_client_restrictions=
         - submission/inet/smtpd_relay_restrictions=permit_sasl_authenticated,reject
         - submission/inet/smtpd_recipient_restrictions=permit_sasl_authenticated,reject
-      changed_when: true
+      register: postfix_submission_config
+      changed_when: "'changed' in postfix_submission_config.stdout"
 
     - name: Reload Postfix
       ansible.builtin.systemd:
         name: postfix
         state: reloaded
+      when: >-
+        postfix_main_config.changed or
+        postfix_virtual_mailbox_maps.changed or
+        postfix_submission_service.changed or
+        postfix_submission_config.changed
 
     - name: Allow autoconfig and submission through UFW
       community.general.ufw:
@@ -478,6 +529,7 @@
         url: http://autoconfig.toss.lan/mail/config-v1.1.xml?emailaddress=hr.test@toss.lan
         return_content: true
       register: nextcloud_autoconfig_xml
+      check_mode: false
 
     - name: Print autoconfig XML first lines
       ansible.builtin.debug:

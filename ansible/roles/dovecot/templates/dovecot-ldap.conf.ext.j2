@@ -1,7 +1,8 @@
-hosts = 192.168.0.20:389
+uris = {{ ldap_uris | join(' ') }}
 ldap_version = 3
 tls = no
-tls_require_cert = never
+tls_require_cert = hard
+tls_ca_cert_file = /etc/ssl/certs/ca-certificates.crt
 
 base = dc=toss,dc=lan
 scope = subtree

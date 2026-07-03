@@ -10,6 +10,31 @@
     state: present
     update_cache: yes
 
+- name: Read Samba AD CA certificates from both domain controllers
+  ansible.builtin.slurp:
+    src: /var/lib/samba/private/tls/ca.pem
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['primary_dc'] + groups['secondary_dc'] }}"
+  register: dovecot_ad_ca_certificates
+
+- name: Trust Samba AD CA certificates
+  ansible.builtin.copy:
+    dest: "/usr/local/share/ca-certificates/toss-ad-{{ item.item }}-ca.crt"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ item.content | b64decode }}"
+  loop: "{{ dovecot_ad_ca_certificates.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: dovecot_ad_ca_copy
+
+- name: Update the OS CA trust store
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  when: dovecot_ad_ca_copy.changed
+  notify: restart dovecot
+
 - name: Deploy mail config
   ansible.builtin.template:
     src: 10-mail.conf.j2

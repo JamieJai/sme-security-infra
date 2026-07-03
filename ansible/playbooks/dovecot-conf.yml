@@ -3,6 +3,6 @@
   hosts: mail01
   become: true
   vars_files:
-    - group_vars/vault.yml
+    - ../group_vars/vault.yml
   roles:
     - dovecot
