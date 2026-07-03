@@ -1,0 +1,322 @@
+---
+- name: Test homelab services with one Samba AD DC offline
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/vault.yml
+
+  vars:
+    failover_test_dc: dc01
+    failover_survivor_dc: "{{ groups['active_dc'][0] }}"
+    failover_rollback_delay: 10m
+    failover_rollback_unit: ad-dc-failover-rollback
+    failover_test_succeeded: false
+    keycloak_realm: homelab
+    keycloak_ldap_provider_name: Samba-AD
+    failover_replication_ncs:
+      - DC=ForestDnsZones,DC=toss,DC=lan
+      - CN=Configuration,DC=toss,DC=lan
+      - DC=DomainDnsZones,DC=toss,DC=lan
+      - DC=toss,DC=lan
+      - CN=Schema,CN=Configuration,DC=toss,DC=lan
+
+  pre_tasks:
+    - name: Validate failover test topology
+      ansible.builtin.assert:
+        that:
+          - failover_test_dc in groups['primary_dc'] + groups['secondary_dc']
+          - >-
+            failover_survivor_dc in
+            groups['primary_dc'] + groups['secondary_dc']
+          - failover_test_dc != failover_survivor_dc
+          - failover_test_dc not in groups['active_dc']
+        fail_msg: >-
+          The default test only permits stopping a non-active DC.
+          Moving the active DC requires a separately reviewed procedure.
+
+    - name: Generate a unique rollback unit name
+      ansible.builtin.set_fact:
+        failover_rollback_unit: >-
+          ad-dc-failover-rollback-{{ lookup('pipe', 'date +%s%N') }}
+
+  tasks:
+    - name: Run protected AD DC failover test
+      block:
+        - name: Remove a stale rollback unit
+          ansible.builtin.shell: |
+            systemctl list-units --all \
+              "ad-dc-failover-rollback*" --plain --no-legend | \
+              awk '{print $1}' | xargs -r systemctl stop
+            systemctl reset-failed 2>/dev/null || true
+            systemctl daemon-reload
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+          changed_when: false
+
+        - name: Arm automatic Samba rollback
+          ansible.builtin.command:
+            argv:
+              - systemd-run
+              - "--unit={{ failover_rollback_unit }}"
+              - "--on-active={{ failover_rollback_delay }}"
+              - /bin/systemctl
+              - start
+              - samba-ad-dc
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+          changed_when: true
+
+        - name: Stop Samba on the test DC
+          ansible.builtin.systemd:
+            name: samba-ad-dc
+            state: stopped
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+
+        - name: Wait until the test DC LDAP listener is offline
+          ansible.builtin.wait_for:
+            host: "{{ hostvars[failover_test_dc].ansible_host }}"
+            port: 389
+            state: stopped
+            timeout: 30
+          delegate_to: "{{ failover_survivor_dc }}"
+
+        - name: Verify survivor DC core services
+          ansible.builtin.shell: |
+            set -eu
+            systemctl is-active samba-ad-dc
+            samba-tool dbcheck --cross-ncs --quiet
+            samba-tool ntacl sysvolcheck
+            wbinfo --check-secret
+            host -t A {{ failover_survivor_dc }}.toss.lan 127.0.0.1
+            host -t SRV _ldap._tcp.toss.lan 127.0.0.1
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ failover_survivor_dc }}"
+          become: true
+          changed_when: false
+
+        - name: Verify Kerberos authentication against the survivor DC
+          ansible.builtin.command:
+            argv:
+              - kinit
+              - "Administrator@{{ ad_realm | default('TOSS.LAN') }}"
+            stdin: "{{ ad_admin_password }}"
+          delegate_to: "{{ failover_survivor_dc }}"
+          become: true
+          changed_when: false
+          no_log: true
+
+        - name: Verify Keycloak readiness, HA LDAPS, and LDAP sync
+          ansible.builtin.shell: |
+            set -eu
+            systemctl is-active haproxy
+            systemctl is-active keycloak
+            realm_url="http://127.0.0.1:8080/realms/{{ keycloak_realm }}"
+            curl -fsS \
+              "$realm_url/.well-known/openid-configuration" >/dev/null
+            ldapsearch \
+              -H ldaps://keycloak-ldap-ha.toss.lan:1636 \
+              -x -LLL -s base -b "" namingContexts >/dev/null
+            admin_password="$(
+              systemctl cat keycloak.service |
+              sed -n 's/^Environment="KEYCLOAK_ADMIN_PASSWORD=\(.*\)"/\1/p' |
+              tail -1
+            )"
+            test -n "$admin_password"
+            {{ keycloak_path | default('/opt/keycloak') }}/bin/kcadm.sh \
+              config credentials \
+              --server http://localhost:8080 \
+              --realm master \
+              --user admin \
+              --password "$admin_password" >/dev/null
+            provider_id="$(
+              {{ keycloak_path | default('/opt/keycloak') }}/bin/kcadm.sh \
+                get components -r {{ keycloak_realm }} |
+              python3 -c '
+            import json, sys
+            data = json.load(sys.stdin)
+            print(next(
+                component["id"]
+                for component in data
+                if component.get("name") == "{{ keycloak_ldap_provider_name }}"
+                and component.get("providerId") == "ldap"
+            ))
+            '
+            )"
+            {{ keycloak_path | default('/opt/keycloak') }}/bin/kcadm.sh \
+              create \
+              "user-storage/$provider_id/sync?action=triggerChangedUsersSync" \
+              -r {{ keycloak_realm }} >/dev/null
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ groups['iam_server'][0] }}"
+          become: true
+          changed_when: false
+          no_log: true
+
+        - name: Verify mail services and survivor LDAPS
+          ansible.builtin.shell: |
+            set -eu
+            systemctl is-active postfix
+            systemctl is-active dovecot
+            doveconf -n >/dev/null
+            ldapsearch \
+              -H ldaps://{{ failover_survivor_dc }}.toss.lan:636 \
+              -x -LLL -s base -b "" namingContexts >/dev/null
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ groups['mail_server'][0] }}"
+          become: true
+          changed_when: false
+
+        - name: Verify Dovecot authentication through survivor LDAP
+          ansible.builtin.command:
+            argv:
+              - doveadm
+              - auth
+              - test
+              - Administrator@toss.lan
+            stdin: "{{ ad_admin_password }}"
+          delegate_to: "{{ groups['mail_server'][0] }}"
+          become: true
+          changed_when: false
+          no_log: true
+
+        - name: Read Nextcloud status
+          ansible.builtin.uri:
+            url: https://127.0.0.1/status.php
+            validate_certs: false
+            return_content: true
+            status_code: 200
+          delegate_to: "{{ groups['nextcloud_server'][0] }}"
+          register: failover_nextcloud_status
+
+        - name: Verify Nextcloud application state
+          ansible.builtin.assert:
+            that:
+              - failover_nextcloud_status.json.installed | bool
+              - not failover_nextcloud_status.json.maintenance | bool
+              - not failover_nextcloud_status.json.needsDbUpgrade | bool
+
+        - name: Record successful service validation
+          ansible.builtin.set_fact:
+            failover_test_succeeded: true
+
+      rescue:
+        - name: Record failed service validation
+          ansible.builtin.set_fact:
+            failover_test_succeeded: false
+
+        - name: Report the failed validation task
+          ansible.builtin.debug:
+            msg: >-
+              Failover validation failed at
+              {{ ansible_failed_task.name | default('an unknown task') }}.
+              Samba restoration will run before the play fails.
+
+      always:
+        - name: Restore Samba on the test DC
+          ansible.builtin.systemd:
+            name: samba-ad-dc
+            state: started
+            enabled: true
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+
+        - name: Wait for restored LDAPS
+          ansible.builtin.wait_for:
+            host: "{{ hostvars[failover_test_dc].ansible_host }}"
+            port: 636
+            state: started
+            timeout: 60
+          delegate_to: "{{ failover_survivor_dc }}"
+
+        - name: Disarm rollback before replication validation
+          ansible.builtin.shell: |
+            systemctl list-units --all \
+              "ad-dc-failover-rollback*" --plain --no-legend | \
+              cut -d " " -f 1 | xargs -r systemctl stop
+            systemctl reset-failed 2>/dev/null || true
+            systemctl daemon-reload
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+          changed_when: false
+
+        - name: Replicate restored DC partitions to the survivor
+          ansible.builtin.command:
+            argv:
+              - samba-tool
+              - drs
+              - replicate
+              - "{{ failover_survivor_dc }}.toss.lan"
+              - "{{ failover_test_dc }}.toss.lan"
+              - "{{ item }}"
+              - -P
+          loop: "{{ failover_replication_ncs }}"
+          delegate_to: "{{ failover_survivor_dc }}"
+          become: true
+          register: failover_partition_replication
+          changed_when: false
+          retries: 10
+          delay: 2
+          until: failover_partition_replication.rc == 0
+
+
+        - name: Remove temporary Kerberos credentials
+          ansible.builtin.command:
+            cmd: kdestroy
+          delegate_to: "{{ failover_survivor_dc }}"
+          become: true
+          changed_when: false
+          failed_when: false
+
+        - name: Wait for restored replication
+          ansible.builtin.command:
+            cmd: samba-tool drs showrepl --summary
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+          register: failover_restored_replication
+          changed_when: false
+          retries: 30
+          delay: 2
+          until: "'[ALL GOOD]' in failover_restored_replication.stdout"
+
+        - name: Verify survivor replication after restoration
+          ansible.builtin.command:
+            cmd: samba-tool drs showrepl --summary
+          delegate_to: "{{ failover_survivor_dc }}"
+          become: true
+          register: failover_survivor_replication
+          changed_when: false
+          retries: 10
+          delay: 2
+          until: "'[ALL GOOD]' in failover_survivor_replication.stdout"
+
+        - name: Verify restored DC trust and SYSVOL
+          ansible.builtin.shell: |
+            set -eu
+            wbinfo --check-secret
+            samba-tool ntacl sysvolcheck
+            systemctl is-active samba-ad-dc
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ failover_test_dc }}"
+          become: true
+          changed_when: false
+
+    - name: Report failover test result
+      ansible.builtin.assert:
+        that:
+          - failover_test_succeeded | bool
+        success_msg: >-
+          PASS: services remained available while {{ failover_test_dc }}
+          was offline, and the DC was restored with healthy replication.
+        fail_msg: >-
+          FAIL: one or more service validations failed.
+          {{ failover_test_dc }} was restored before this failure.
