@@ -1,6 +1,6 @@
 ---
 - name: Onboard an AD user
-  hosts: primary_dc
+  hosts: active_dc
   become: true
 
   vars_files:

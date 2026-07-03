@@ -1,0 +1,22 @@
+---
+- name: Allow AD DC failover traffic from the homelab LAN
+  hosts: primary_dc:secondary_dc
+  become: true
+  gather_facts: false
+  vars:
+    ad_client_network: 192.168.0.0/24
+
+  tasks:
+    - name: Allow LDAPS, secure Global Catalog, and dynamic RPC
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        from_ip: "{{ ad_client_network }}"
+      loop:
+        - {port: "636", proto: tcp}
+        - {port: "3269", proto: tcp}
+        - {port: "49152:65535", proto: tcp}
+        - {port: "49152:65535", proto: udp}
+      tags:
+        - firewall

@@ -3,11 +3,23 @@
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
 
-- name: Update /etc/hosts
+- name: Map the host FQDN to its LAN address
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^127\.0\.1\.1'
-    line: "127.0.1.1 {{ inventory_hostname }}.{{ domain_name }} {{ inventory_hostname }}"
+    line: "{{ ansible_host }} {{ inventory_hostname }}.{{ domain_name }} {{ inventory_hostname }}"
+
+- name: Check for the cloud-init hosts template
+  ansible.builtin.stat:
+    path: /etc/cloud/templates/hosts.debian.tmpl
+  register: cloud_init_hosts_template
+
+- name: Persist the LAN host mapping in the cloud-init template
+  ansible.builtin.lineinfile:
+    path: /etc/cloud/templates/hosts.debian.tmpl
+    regexp: '^127\.0\.1\.1'
+    line: "{{ ansible_host }} {{ inventory_hostname }}.{{ domain_name }} {{ inventory_hostname }}"
+  when: cloud_init_hosts_template.stat.exists
 
 - name: Add core infrastructure hosts
   ansible.builtin.blockinfile:

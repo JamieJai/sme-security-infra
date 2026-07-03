@@ -4,6 +4,9 @@ ntp_servers:
   - 192.168.0.20
 domain_name: toss.lan
 dns_server: 192.168.0.20
+dns_servers:
+  - 192.168.0.20
+  - 192.168.0.21
 admin_user: sysadmin
 
 nextcloud_oidc_department_groups:

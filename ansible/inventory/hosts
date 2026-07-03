@@ -4,6 +4,9 @@ dc01 ansible_host=192.168.0.20 ansible_user=sysadmin
 [secondary_dc]
 dc02 ansible_host=192.168.0.21 ansible_user=sysadmin
 
+[active_dc]
+dc02
+
 [wazuh_server]
 wazuh ansible_host=192.168.0.30 ansible_user=sysadmin
 
@@ -14,7 +17,7 @@ keycloak ansible_host=192.168.0.60 ansible_user=sysadmin
 nextcloud ansible_host=192.168.0.50 ansible_user=sysadmin
 
 [storage_server]
-storage01 ansible_host=192.168.0.70 ansible_user=sysadmin
+storage01 ansible_host=192.168.0.70 ansible_user=sysadmin ansible_ssh_private_key_file=~/.ssh/id_ed25519_homelab
 
 [mail_server]
 mail01 ansible_host=192.168.0.80 ansible_user=sysadmin

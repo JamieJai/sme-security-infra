@@ -1,0 +1,45 @@
+---
+- name: Rotate the AD Administrator password
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  vars:
+    password_file: ""
+
+  tasks:
+    - name: Require a local password file
+      ansible.builtin.assert:
+        that:
+          - password_file | length > 0
+
+    - name: Set the Administrator password through standard input
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - user
+          - setpassword
+          - Administrator
+        stdin: |-
+          {{ lookup('ansible.builtin.file', password_file) }}
+          {{ lookup('ansible.builtin.file', password_file) }}
+      no_log: true
+
+    - name: Read the Administrator account state
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - user
+          - show
+          - Administrator
+          - >-
+            --attributes=userAccountControl,
+            msDS-User-Account-Control-Computed
+      register: administrator_state
+      changed_when: false
+
+    - name: Verify the Administrator account is enabled
+      ansible.builtin.assert:
+        that:
+          - >-
+            'msDS-User-Account-Control-Computed: 0' in
+            administrator_state.stdout

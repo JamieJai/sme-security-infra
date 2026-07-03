@@ -5,21 +5,23 @@
     state: directory
     mode: '0755'
 
-- name: Set DNS to DC01
+- name: Set DNS to AD domain controllers
   ansible.builtin.copy:
     dest: /etc/systemd/resolved.conf.d/ad-dns.conf
     content: |
       [Resolve]
-      DNS=192.168.0.20
+      DNS={{ dns_servers | join(' ') }}
       Domains=toss.lan
     mode: '0644'
   register: dns_config
+  tags: dns
 
 - name: Restart systemd-resolved
   ansible.builtin.systemd:
     name: systemd-resolved
     state: restarted
   when: dns_config.changed
+  tags: dns
 
 - name: Install AD integration packages
   ansible.builtin.apt:
@@ -70,3 +72,28 @@
     content: "%Domain\\ Admins ALL=(ALL) NOPASSWD:ALL"
     mode: '0440'
     validate: /usr/sbin/visudo -cf %s
+
+- name: Check whether SSSD responders are explicitly configured
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Eq
+      - ^[[:space:]]*services[[:space:]]*=.*(nss|pam)
+      - /etc/sssd/sssd.conf
+  register: sssd_explicit_responders
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: sssd-sockets
+
+- name: Disable duplicate SSSD responder socket activation
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - sssd-nss.socket
+    - sssd-pam.socket
+    - sssd-pam-priv.socket
+  when: sssd_explicit_responders.rc == 0
+  tags: sssd-sockets

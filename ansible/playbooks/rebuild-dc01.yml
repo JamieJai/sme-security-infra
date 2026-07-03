@@ -1,6 +1,6 @@
 ---
 - name: Deploy Samba Active Directory Domain Controller
-  hosts: dc02
+  hosts: dc01
   become: true
 
   vars_files:
@@ -9,8 +9,9 @@
   vars:
     ad_realm: TOSS.LAN
     ad_domain: TOSS
-    bootstrap_dc_host: dc01
-    bootstrap_dc_ip: 192.168.0.20
+    bootstrap_dc_host: dc02
+    bootstrap_dc_ip: 192.168.0.21
+    require_empty_samba_database: true
 
 
   roles:

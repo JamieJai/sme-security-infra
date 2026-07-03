@@ -1,6 +1,6 @@
 ---
 - name: Build Nextcloud addressbook users from AD
-  hosts: primary_dc
+  hosts: active_dc
   become: true
   gather_facts: false
 
@@ -54,7 +54,7 @@
 
   vars:
     nextcloud_occ: /var/www/nextcloud/occ
-    nextcloud_addressbook_source_host: "{{ groups['primary_dc'][0] }}"
+    nextcloud_addressbook_source_host: "{{ groups['active_dc'][0] }}"
 
   tasks:
     - name: Ensure Nextcloud Contacts app is installed and enabled

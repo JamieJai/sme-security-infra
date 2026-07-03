@@ -1,4 +1,26 @@
 ---
+- name: Check whether this host is already joined as a DC
+  ansible.builtin.stat:
+    path: /var/lib/samba/private/secrets.ldb
+  register: samba_dc_database
+
+- name: Require explicit confirmation and an empty Samba database for rebuilds
+  ansible.builtin.assert:
+    that:
+      - rebuild_dc_confirm | default(false) | bool
+      - not samba_dc_database.stat.exists
+    fail_msg: "Rebuild requires -e rebuild_dc_confirm=true and pre-cleaned Samba DC state."
+  when: require_empty_samba_database | default(false) | bool
+
+- name: Set temporary DNS to bootstrap DC
+  ansible.builtin.copy:
+    content: |
+      nameserver {{ bootstrap_dc_ip | default('192.168.0.20') }}
+      search {{ ad_realm | lower }}
+    dest: /etc/resolv.conf
+    mode: '0644'
+  when: not samba_dc_database.stat.exists
+
 - name: Install Samba AD DC packages
   ansible.builtin.apt:
     name:
@@ -26,14 +48,7 @@
   ansible.builtin.file:
     path: /etc/samba/smb.conf
     state: absent
-
-- name: Set temporary DNS to primary DC
-  ansible.builtin.copy:
-    content: |
-      nameserver 192.168.0.20
-      search {{ ad_realm | lower }}
-    dest: /etc/resolv.conf
-    mode: '0644'
+  when: not samba_dc_database.stat.exists
 
 - name: Wait for DNS to be reachable
   ansible.builtin.command: ping -c 2 archive.ubuntu.com
@@ -42,21 +57,26 @@
   delay: 5
   until: ping_test.rc == 0
   changed_when: false
+  when: not samba_dc_database.stat.exists
 
-- name: Verify primary DC DNS resolution
-  ansible.builtin.command: host dc01.{{ ad_realm | lower }} 192.168.0.20
+- name: Verify bootstrap DC DNS resolution
+  ansible.builtin.command: host {{ bootstrap_dc_host | default('dc01') }}.{{ ad_realm | lower }} {{ bootstrap_dc_ip | default('192.168.0.20') }}
   changed_when: false
+  when: not samba_dc_database.stat.exists
 
 - name: Join existing Samba Domain as Additional DC
   ansible.builtin.command: >
     samba-tool domain join {{ ad_realm | lower }} DC
-      -UAdministrator%{{ ad_admin_password }}
+      -U{{ ad_domain }}\\Administrator%{{ ad_admin_password }}
+      --use-kerberos=off
       --realm={{ ad_realm }}
       --dns-backend=SAMBA_INTERNAL
       --option="interfaces=lo eth0"
       --option="bind interfaces only=yes"
   args:
     creates: /var/lib/samba/private/secrets.ldb
+  no_log: true
+  when: not samba_dc_database.stat.exists
 
 - name: Copy Kerberos config
   ansible.builtin.copy:
@@ -88,5 +108,5 @@
 - name: Restart samba-ad-dc service
   ansible.builtin.systemd:
     name: samba-ad-dc
-    state: restarted
+    state: started
     enabled: yes
