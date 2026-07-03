@@ -10,7 +10,7 @@
 |---|---|
 | AD Domain | `toss.lan` |
 | Kerberos Realm | `TOSS.LAN` |
-| DNS/NTP | `192.168.0.20` |
+| DNS | `192.168.0.20`, `192.168.0.21` |
 | Nextcloud URL | `https://192.168.0.50`, `https://nextcloud.toss.lan` |
 | Keycloak Realm | `homelab` |
 
@@ -18,14 +18,15 @@
 
 | 서버 | IP | 역할 |
 |---|---:|---|
-| `dc01` | `192.168.0.20` | Samba AD DC, DNS, Chrony |
-| `dc02` | `192.168.0.21` | Samba additional DC |
+| `dc01` | `192.168.0.20` | 재구축된 Samba additional DC, DNS, Kerberos, SYSVOL |
+| `dc02` | `192.168.0.21` | Active Samba AD DC, DNS, 전체 FSMO, Keycloak LDAP |
 | `wazuh` | `192.168.0.30` | Wazuh manager/dashboard |
 | `automation01` | `192.168.0.40` | Terraform/Ansible/Git 운영 노드 |
 | `nextcloud` | `192.168.0.50` | Nextcloud, Apache/PHP, OIDC client |
 | `keycloak` | `192.168.0.60` | Keycloak IAM, AD LDAP federation |
 | `storage01` | `192.168.0.70` | NFS/SMB shared storage |
 | `mail01` | `192.168.0.80` | Postfix/Dovecot, AD LDAP mail auth |
+Inventory의 `primary_dc`와 `secondary_dc`는 DC 구축 토폴로지를 나타낸다. 현재 FSMO와 AD 쓰기 작업 대상은 `active_dc` 그룹으로 별도 관리하며 `dc02`만 포함한다.
 
 ## 4. AD 구조와 그룹
 
@@ -75,7 +76,7 @@
 
 ## 7. Mail 연동
 
-`mail01`은 Postfix/Dovecot 기반이며 LDAP 설정은 `ldaps://192.168.0.20:636`을 기준으로 한다. 내부 도메인 `toss.lan` 수신은 AD 사용자 `mail` 속성에서 생성한 Postfix `hash:/etc/postfix/virtual_mailbox_maps`를 사용해 `/var/vmail/toss.lan/<user>/Maildir`로 전달한다. Dovecot은 `Sent`, `Drafts`, `Trash`, `Junk`, `Archive` special-use 메일함을 자동 구독하도록 설정하고, `mail-autoconfig.yml`이 기존 내부 메일 사용자별 Maildir 폴더를 보정한다. Keycloak의 Samba AD federation도 AD CA를 신뢰한 뒤 `ldaps://dc01.toss.lan:636`을 사용한다. Nextcloud는 `mail.toss.lan` SMTP 설정으로 내부 알림 메일을 보낸다.
+`mail01`은 Postfix/Dovecot 기반이며 Dovecot LDAP 인증은 인증서 검증이 활성화된 LDAPS로 `dc02`와 `dc01`을 순서대로 사용한다. 내부 도메인 `toss.lan` 수신은 AD 사용자 `mail` 속성에서 생성한 Postfix `hash:/etc/postfix/virtual_mailbox_maps`를 사용해 `/var/vmail/toss.lan/<user>/Maildir`로 전달한다. Dovecot은 `Sent`, `Drafts`, `Trash`, `Junk`, `Archive` special-use 메일함을 자동 구독하도록 설정하고, `mail-autoconfig.yml`이 기존 내부 메일 사용자별 Maildir 폴더를 보정한다. Keycloak의 Samba AD federation은 전용 Vault bind 암호를 사용하고 로컬 HAProxy의 `ldaps://keycloak-ldap-ha.toss.lan:1636`에 연결한다. HAProxy는 dc02를 우선 사용하고 장애 시 dc01로 전환하며, 양쪽 DC의 서로 다른 CA와 인증서 호스트명을 각각 검증한다. Nextcloud는 `mail.toss.lan` SMTP 설정으로 내부 알림 메일을 보낸다.
 
 ## 8. TLS 인증서
 
