@@ -1,6 +1,6 @@
 # SME Security Infra IaC Runbook
 
-이 runbook은 `sme-security-infra`를 재현 가능한 IaC 구조로 운영하기 위한 기준 실행 순서다. Terraform은 VM과 기본 인프라를 만들고, Ansible은 OS/서비스/보안 구성을 담당한다.
+이 runbook은 `sme-security-infra`를 재현 가능한 IaC 구조로 운영하기 위한 기준 실행 순서다. Terraform은 VM과 기본 인프라를 만들고, Ansible은 OS/서비스/보안 구성을 담당한다. Terraform 세부 운영 기준은 `docs/terraform-runbook.md`를 따른다.
 
 ## 목표 아키텍처
 

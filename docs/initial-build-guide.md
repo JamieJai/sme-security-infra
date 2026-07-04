@@ -15,9 +15,13 @@ Playbook 분류와 위험도는 `docs/ansible-playbook-catalog.md`를 함께 확
 
 ## 1. Terraform VM 구성
 
+세부 운영 기준은 `docs/terraform-runbook.md`를 확인한다.
+
 ```bash
 cd /home/sysadmin/homelab-infra/terraform
 terraform init
+terraform fmt -recursive
+terraform validate
 terraform plan
 terraform apply
 ```
