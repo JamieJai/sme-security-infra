@@ -59,4 +59,10 @@ resource "proxmox_vm_qemu" "ubuntu_vm" {
   sshkeys    = var.ssh_public_key
 
   tags = join(",", var.tags)
+
+  lifecycle {
+    ignore_changes = [
+      bootdisk,
+    ]
+  }
 }

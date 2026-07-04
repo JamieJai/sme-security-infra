@@ -244,8 +244,8 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 - 로컬 `terraform/terraform.tfvars`의 `windows-test` VM 정의를 `keycloak`으로 정정했다.
 - Terraform state 주소를 `module.vm["windows-test"]`에서 `module.vm["keycloak"]`로 이동했다.
 - `terraform state list` 기준 `windows-test`는 제거되고 `module.vm["keycloak"]`가 존재한다.
-- `terraform apply`는 실행하지 않았다.
-- `terraform plan -refresh=false -input=false`는 Proxmox provider token이 placeholder라 `401 invalid token value`로 실패했다. 유효한 token 주입 후 plan을 재확인해야 한다.
+- VMID 105는 targeted apply로 Proxmox 표시 이름과 tag를 `keycloak`/`iam;keycloak` 기준으로 정리했다.
+- Proxmox token secret과 `ci_password`를 로컬 비추적 `terraform/terraform.tfvars`에 복구했고, `terraform plan -input=false`가 clean 상태임을 확인했다.
 - Ansible common role의 core hosts mapping도 `192.168.0.60 keycloak.toss.lan keycloak`으로 수정했다.
 
 ### AI shadow metrics/report
@@ -256,3 +256,10 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 - `/var/lib/wazuh-ai-shadow/metrics.json` 생성과 safety 검증을 `wazuh-ai-shadow.yml`에 포함했다.
 - 로컬 unit test 3개 통과, target unit test 통과, Wazuh 배포 성공.
 - 배포 직후 report 기준: `events_total=5200`, `events_pending=0`, `redaction_leak_count=0`, `duplicate_rate=0.0`, loss indicators 0.
+
+### Terraform provider drift cleanup
+
+- `terraform plan`의 `401 invalid token value`는 로컬 비추적 tfvars의 Proxmox token secret placeholder가 원인이었다.
+- 같은 Proxmox token을 쓰는 기존 로컬 Terraform 작업 디렉터리에서 token secret과 `ci_password`를 복구했다. 값은 Git에 저장하지 않는다.
+- Telmate provider가 `bootdisk = "scsi0"`를 refresh 후 계속 `null`로 읽어 반복 diff를 만들기 때문에 `terraform/modules/ubuntu-vm`에서 `bootdisk`만 lifecycle ignore 대상으로 추가했다.
+- 최종 검증: `terraform plan -input=false` no changes, 전체 Ansible ping 성공.
