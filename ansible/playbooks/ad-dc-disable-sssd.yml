@@ -1,0 +1,48 @@
+---
+- name: Disable SSSD on Samba AD domain controllers
+  hosts: primary_dc:secondary_dc
+  become: true
+
+  vars:
+    sssd_units_on_dcs:
+      - sssd.service
+      - sssd-nss.socket
+      - sssd-pam.socket
+      - sssd-pam-priv.socket
+      - sssd-ssh.socket
+      - sssd-sudo.socket
+
+  tasks:
+    - name: Verify Ansible login user is local before disabling SSSD
+      ansible.builtin.command:
+        cmd: getent passwd {{ ansible_user | default('sysadmin') }}
+      register: dc_login_user_passwd
+      changed_when: false
+
+    - name: Stop and mask SSSD units on DCs
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop: "{{ sssd_units_on_dcs }}"
+      failed_when: false
+
+    - name: Reset failed state for SSSD units
+      ansible.builtin.command:
+        cmd: systemctl reset-failed {{ item }}
+      loop: "{{ sssd_units_on_dcs }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Verify Samba AD DC remains active
+      ansible.builtin.command:
+        cmd: systemctl is-active samba-ad-dc
+      changed_when: false
+
+    - name: Verify no failed units remain for SSSD
+      ansible.builtin.command:
+        cmd: systemctl --failed --no-legend --no-pager
+      register: dc_failed_units
+      changed_when: false
+      failed_when: dc_failed_units.stdout is search('sssd')
