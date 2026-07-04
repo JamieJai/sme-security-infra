@@ -1,0 +1,185 @@
+---
+- name: Provide a restricted Wazuh snapshot target on storage01
+  hosts: storage_server
+  become: true
+  gather_facts: false
+  vars:
+    backup_uid: 1900
+    backup_gid: 1900
+    backup_path: /data/backups/wazuh-indexer
+    wazuh_address: 192.168.0.30
+  tasks:
+    - name: Install NFS server
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+        state: present
+    - name: Create backup group
+      ansible.builtin.group:
+        name: wazuh-backup
+        gid: "{{ backup_gid }}"
+        system: true
+    - name: Create backup account
+      ansible.builtin.user:
+        name: wazuh-backup
+        uid: "{{ backup_uid }}"
+        group: wazuh-backup
+        system: true
+        shell: /usr/sbin/nologin
+        home: /nonexistent
+        create_home: false
+    - name: Create protected backup target
+      ansible.builtin.file:
+        path: "{{ backup_path }}"
+        state: directory
+        owner: wazuh-backup
+        group: wazuh-backup
+        mode: "0750"
+    - name: Create NFS export fragment directory
+      ansible.builtin.file:
+        path: /etc/exports.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+    - name: Allow NFSv4 only from the Wazuh host
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: tcp
+        from_ip: "{{ wazuh_address }}"
+        to_port: "2049"
+        comment: Wazuh snapshot replication
+    - name: Restrict Wazuh backup export to its source host
+      ansible.builtin.copy:
+        dest: /etc/exports.d/wazuh-backup.exports
+        owner: root
+        group: root
+        mode: "0644"
+        content: >-
+          {{ backup_path }} {{ wazuh_address }}(rw,async,no_subtree_check,all_squash,anonuid={{ backup_uid }},anongid={{ backup_gid }})
+      notify: Reload NFS exports
+    - name: Apply NFS export before client configuration
+      ansible.builtin.meta: flush_handlers
+    - name: Verify the restricted export exists
+      ansible.builtin.command:
+        cmd: exportfs -v
+      register: exports
+      changed_when: false
+      failed_when: backup_path not in exports.stdout or wazuh_address not in exports.stdout
+  handlers:
+    - name: Reload NFS exports
+      ansible.builtin.command:
+        cmd: exportfs -ra
+      changed_when: true
+
+- name: Replicate Wazuh snapshots to storage01
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  vars:
+    replica_path: /mnt/wazuh-snapshot-replica
+    replica_source: 192.168.0.70:/data/backups/wazuh-indexer
+    replica_state_path: /var/lib/wazuh-snapshot-replica
+    indexer_url: https://127.0.0.1:9200
+    indexer_cert: /etc/wazuh-indexer/certs/admin.pem
+    indexer_key: /etc/wazuh-indexer/certs/admin-key.pem
+    indexer_ca: /etc/wazuh-indexer/certs/root-ca.pem
+  tasks:
+    - name: Create local replica access group
+      ansible.builtin.group:
+        name: wazuh-backup
+        gid: 1900
+        system: true
+    - name: Allow the indexer to read replicated snapshots
+      ansible.builtin.user:
+        name: wazuh-indexer
+        groups: wazuh-backup
+        append: true
+      notify: Restart Wazuh indexer
+    - name: Install replication dependencies
+      ansible.builtin.apt:
+        name: [nfs-common, rsync]
+        state: present
+    - name: Create local mountpoint when it is not mounted
+      ansible.builtin.shell: |
+        mountpoint -q {{ replica_path }} || install -d -o root -g root -m 0750 {{ replica_path }}
+      changed_when: false
+    - name: Create protected replication state directory
+      ansible.builtin.file:
+        path: "{{ replica_state_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+    - name: Mount the restricted storage01 backup export
+      ansible.posix.mount:
+        path: "{{ replica_path }}"
+        src: "{{ replica_source }}"
+        fstype: nfs
+        opts: rw,nosuid,nodev,noexec,hard,_netdev,vers=4,proto=tcp
+        state: mounted
+    - name: Allow OpenSearch to read the offsite repository
+      ansible.builtin.lineinfile:
+        path: /etc/wazuh-indexer/opensearch.yml
+        regexp: "^path\\.repo:"
+        line: 'path.repo: ["/var/backups/wazuh-indexer", "{{ replica_path }}"]'
+        backup: true
+      notify: Restart Wazuh indexer
+    - name: Apply repository path before verification
+      ansible.builtin.meta: flush_handlers
+    - name: Wait for Wazuh indexer HTTPS
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 9200
+        timeout: 60
+    - name: Install snapshot replication script
+      ansible.builtin.copy:
+        src: ../files/wazuh/index-lifecycle/wazuh-snapshot-replica.sh
+        dest: /usr/local/sbin/wazuh-snapshot-replica
+        owner: root
+        group: root
+        mode: "0750"
+    - name: Install snapshot replication units
+      ansible.builtin.copy:
+        src: "../files/wazuh/index-lifecycle/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - wazuh-snapshot-replica.service
+        - wazuh-snapshot-replica.timer
+    - name: Enable snapshot replication timer
+      ansible.builtin.systemd:
+        name: wazuh-snapshot-replica.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Run the initial external replication
+      ansible.builtin.command:
+        cmd: systemctl start wazuh-snapshot-replica.service
+      changed_when: false
+    - name: Verify replication freshness and repository metadata
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f {{ replica_path }}/.last-success
+        test -f {{ replica_path }}/index.latest
+        age=$(( $(date +%s) - $(date -d "$(cat {{ replica_path }}/.last-success)" +%s) ))
+        test "$age" -le 129600
+        curl --silent --show-error --fail \
+          --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} \
+          -X PUT -H 'Content-Type: application/json' {{ indexer_url }}/_snapshot/wazuh-alerts-offsite \
+          --data '{"type":"fs","settings":{"location":"{{ replica_path }}","readonly":true}}' >/dev/null
+        curl --silent --show-error --fail \
+          --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} \
+          {{ indexer_url }}/_snapshot/wazuh-alerts-offsite/_all |
+          python3 -c 'import json,sys; s=json.load(sys.stdin).get("snapshots",[]); assert s and any(x.get("state")=="SUCCESS" for x in s)'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+  handlers:
+    - name: Restart Wazuh indexer
+      ansible.builtin.systemd:
+        name: wazuh-indexer
+        state: restarted

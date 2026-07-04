@@ -1,0 +1,16 @@
+[Unit]
+Description=Replicate Wazuh snapshots to storage01
+After=network-online.target remote-fs.target wazuh-alert-snapshot.service
+Wants=network-online.target
+RequiresMountsFor=/mnt/wazuh-snapshot-replica
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wazuh-snapshot-replica
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/mnt/wazuh-snapshot-replica /var/lib/wazuh-snapshot-replica

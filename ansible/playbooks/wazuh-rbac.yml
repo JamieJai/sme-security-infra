@@ -1,0 +1,156 @@
+---
+- name: Configure Wazuh OpenSearch RBAC and rotate privileged credentials
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../group_vars/wazuh-rbac-vault.yml
+  vars:
+    security_api: https://127.0.0.1:9200/_plugins/_security/api
+    admin_cert: /etc/wazuh-indexer/certs/admin.pem
+    admin_key: /etc/wazuh-indexer/certs/admin-key.pem
+    admin_ca: /etc/wazuh-indexer/certs/root-ca.pem
+  tasks:
+    - name: Validate vaulted credentials
+      ansible.builtin.assert:
+        that:
+          - wazuh_admin_password | length >= 32
+          - wazuh_breakglass_password | length >= 32
+      no_log: true
+    - name: Create SME analyst role
+      ansible.builtin.uri:
+        url: "{{ security_api }}/roles/sme_wazuh_analyst"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          cluster_permissions: [cluster_composite_ops_ro]
+          index_permissions:
+            - index_patterns: [wazuh-alerts-*, wazuh-archives-*]
+              allowed_actions: [read]
+          tenant_permissions:
+            - tenant_patterns: [global_tenant]
+              allowed_actions: [kibana_all_write]
+        status_code: [200, 201]
+      changed_when: false
+    - name: Map Security_Team to SME analyst role
+      ansible.builtin.uri:
+        url: "{{ security_api }}/rolesmapping/sme_wazuh_analyst"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          backend_roles: [Security_Team]
+          users: []
+          hosts: []
+        status_code: [200, 201]
+      changed_when: false
+    - name: Create SME read-only role
+      ansible.builtin.uri:
+        url: "{{ security_api }}/roles/sme_wazuh_readonly"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          cluster_permissions: [cluster_composite_ops_ro]
+          index_permissions:
+            - index_patterns: [wazuh-alerts-*, wazuh-archives-*]
+              allowed_actions: [read]
+          tenant_permissions:
+            - tenant_patterns: [global_tenant]
+              allowed_actions: [kibana_all_read]
+        status_code: [200, 201]
+      changed_when: false
+    - name: Map future Wazuh_ReadOnly group to SME read-only role
+      ansible.builtin.uri:
+        url: "{{ security_api }}/rolesmapping/sme_wazuh_readonly"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          backend_roles: [Wazuh_ReadOnly]
+          users: []
+          hosts: []
+        status_code: [200, 201]
+      changed_when: false
+    - name: Allow RBAC groups to use Dashboard saved objects
+      ansible.builtin.uri:
+        url: "{{ security_api }}/rolesmapping/kibana_user"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          backend_roles: [kibanauser, Security_Team, Wazuh_ReadOnly]
+          users: []
+          hosts: []
+        status_code: [200, 201]
+      changed_when: false
+    - name: Rotate built-in admin credential
+      ansible.builtin.uri:
+        url: "{{ security_api }}/internalusers/admin"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          password: "{{ wazuh_admin_password }}"
+          backend_roles: [admin]
+          attributes: {}
+        status_code: [200, 201]
+      no_log: true
+      changed_when: false
+    - name: Create or rotate break-glass administrator
+      ansible.builtin.uri:
+        url: "{{ security_api }}/internalusers/sme_breakglass"
+        method: PUT
+        client_cert: "{{ admin_cert }}"
+        client_key: "{{ admin_key }}"
+        ca_path: "{{ admin_ca }}"
+        body_format: json
+        body:
+          password: "{{ wazuh_breakglass_password }}"
+          backend_roles: [admin]
+          attributes:
+            purpose: emergency-only
+        status_code: [200, 201]
+      no_log: true
+      changed_when: false
+    - name: Verify rotated admin authentication
+      ansible.builtin.uri:
+        url: https://127.0.0.1:9200/_plugins/_security/authinfo
+        user: admin
+        password: "{{ wazuh_admin_password }}"
+        force_basic_auth: true
+        ca_path: "{{ admin_ca }}"
+        return_content: true
+      register: admin_auth
+      no_log: true
+      changed_when: false
+    - name: Verify break-glass authentication
+      ansible.builtin.uri:
+        url: https://127.0.0.1:9200/_plugins/_security/authinfo
+        user: sme_breakglass
+        password: "{{ wazuh_breakglass_password }}"
+        force_basic_auth: true
+        ca_path: "{{ admin_ca }}"
+        return_content: true
+      register: breakglass_auth
+      no_log: true
+      changed_when: false
+    - name: Assert privileged users receive only the admin backend role
+      ansible.builtin.assert:
+        that:
+          - "'admin' in admin_auth.json.backend_roles"
+          - "'admin' in breakglass_auth.json.backend_roles"
+      no_log: true

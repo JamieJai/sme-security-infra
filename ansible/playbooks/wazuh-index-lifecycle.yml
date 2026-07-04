@@ -25,7 +25,7 @@
       ansible.builtin.lineinfile:
         path: /etc/wazuh-indexer/opensearch.yml
         regexp: '^path\.repo:'
-        line: 'path.repo: ["{{ snapshot_path }}"]'
+        line: 'path.repo: ["{{ snapshot_path }}", "/mnt/wazuh-snapshot-replica"]'
         backup: true
       notify: Restart Wazuh indexer
 

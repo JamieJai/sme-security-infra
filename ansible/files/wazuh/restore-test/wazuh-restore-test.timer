@@ -1,0 +1,11 @@
+[Unit]
+Description=Run isolated Wazuh snapshot restore test monthly
+
+[Timer]
+OnCalendar=monthly
+RandomizedDelaySec=6h
+Persistent=true
+Unit=wazuh-restore-test.service
+
+[Install]
+WantedBy=timers.target

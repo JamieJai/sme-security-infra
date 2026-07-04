@@ -1,0 +1,11 @@
+[Unit]
+Description=Restore and validate a Wazuh snapshot in an isolated indexer
+After=wazuh-snapshot-replica.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wazuh-restore-test
+User=root
+Group=root
+PrivateTmp=true
+ProtectHome=true

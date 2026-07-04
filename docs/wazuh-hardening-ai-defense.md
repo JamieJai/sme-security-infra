@@ -191,3 +191,13 @@ AI 응답은 JSON schema로 검증하며 verdict, confidence, summary, evidence_
 ## 다음 구현 단위
 
 첫 구현은 AI service보다 custom rule test harness를 먼저 만든다. 실제 fixture가 안정되어야 canonical schema와 AI evaluation set도 신뢰할 수 있다.
+
+## 구현된 shadow collector
+
+`wazuh-ai-shadow.yml`은 `/var/ossec/logs/alerts/alerts.json`을 read-only로 읽는
+`wazuh-ai-shadow` 계정을 배포한다. SQLite WAL spool에 inode/byte offset과 event ID를
+저장해 중복과 rotation을 처리하며 최대 10,000건으로 제한한다. canonical event에는
+allowlist field만 저장하고 full_log, password, token, cookie, authorization, body는
+저장하지 않는다. 현재 enrichment는 5분 correlation과 severity를 계산하는
+`deterministic-v1`이며 notification과 automated_action은 항상 false다. 외부 LLM,
+network access, Wazuh write API, SSH/shell 권한은 없다.

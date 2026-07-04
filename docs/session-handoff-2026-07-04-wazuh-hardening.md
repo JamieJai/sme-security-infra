@@ -166,3 +166,74 @@ remote: git@github.com:JamieJai/sme-security-infra.git
     30일 index retention과 일일 snapshot까지 적용 및 검증된 상태야.
     다음은 snapshot을 storage01로 외부 복제하고 restore test를 만든 뒤,
     dashboard certificate/RBAC를 정리하고 AI shadow pipeline 구현을 시작하자.
+
+## 후속 완료 - Snapshot 외부 복제
+
+- `storage01:/data/backups/wazuh-indexer`에 외부 replica 구성
+- Wazuh IP의 NFSv4 TCP/2049만 UFW 허용
+- `all_squash`, 전용 UID/GID 1900으로 원격 root 권한 차단
+- 매일 03:15 KST 복제 timer와 36시간 freshness 검증 적용
+- 외부 사본을 read-only OpenSearch repository로 등록해 SUCCESS snapshot 조회
+- 정상 재실행 changed=0, 전체 verify-all failed=0/unreachable=0
+
+남은 작업은 격리된 test indexer host를 준비한 뒤 실제 index restore/document count
+검증을 자동화하는 것이다. 운영 cluster에는 restore test를 실행하지 않는다.
+
+## 후속 완료 - Restore, Dashboard TLS, RBAC, AI shadow
+
+- 외부 snapshot을 격리 OpenSearch cluster에 실제 restore하고 123 shard 성공 검증
+- 월간 restore timer와 35일 stale 검증 적용
+- Dashboard 전용 CA와 `wazuh.toss.lan`, `192.168.0.30`, `127.0.0.1` SAN 적용
+- 전체 Linux 관리 호스트 CA trust 배포 및 실패 시 certificate rollback 검증
+- `Security_Team` analyst, `Wazuh_ReadOnly` read-only SSO backend role mapping
+- 내장 admin credential rotation과 Vault 기반 `sme_breakglass` 계정 검증
+- read-only `alerts.json` collector, SQLite durable offset/spool, allowlist redaction,
+  5분 deterministic correlation, mock enrichment의 AI shadow service 적용
+- 외부 LLM, notification, automated action, network access는 비활성
+- 전체 verify-all: 모든 host changed=0, failed=0, unreachable=0
+
+다음 단계는 shadow 운영 지표를 일정 기간 측정한 뒤 event loss/duplicate/redaction
+검증 결과를 바탕으로 notification 또는 외부 LLM 활성화 여부를 별도 승인하는 것이다.
+
+## 최종 인계 기준
+
+이 섹션이 다음 세션에서 사용할 최신 기준이다. 위의 `다음 계획` 1~4는 모두
+완료됐으며 더 이상 미완료 작업이 아니다.
+
+현재 운영 상태:
+
+- Wazuh custom detection 7개 fixture 통과
+- 30일 alert retention, 일일 local snapshot, storage01 외부 replica 적용
+- 외부 replica 월간 실제 restore test 적용 및 123 shard 복원 성공
+- Dashboard SAN 인증서와 내부 CA trust 적용
+- `Security_Team` analyst, `Wazuh_ReadOnly` read-only RBAC 적용
+- admin rotation 및 Vault 기반 `sme_breakglass` 적용
+- AI shadow collector, SQLite spool, redaction, correlation, mock enrichment 적용
+- 외부 LLM, notification, automated action은 비활성
+- 전체 `verify-all`: 모든 host changed=0, failed=0, unreachable=0
+
+주요 재실행 순서:
+
+    cd /home/sysadmin/homelab-infra/ansible
+    ansible-playbook -i inventory/hosts playbooks/wazuh-snapshot-replica.yml
+    ansible-playbook -i inventory/hosts playbooks/wazuh-restore-test.yml
+    ansible-playbook -i inventory/hosts playbooks/wazuh-dashboard-certificate.yml
+    ansible-playbook -i inventory/hosts playbooks/wazuh-rbac.yml --vault-password-file .vault_pass
+    ansible-playbook -i inventory/hosts playbooks/wazuh-ai-shadow.yml
+    ansible-playbook -i inventory/hosts playbooks/verify-all.yml
+
+다음 우선 작업:
+
+1. Terraform의 `windows-test` 정의가 실제 Keycloak과 동일한 `192.168.0.60`을
+   사용하고 있으므로 state와 실제 VM을 대조해 drift를 먼저 해소한다. 확인 전에는
+   전체 `terraform apply`를 실행하지 않는다.
+2. AI shadow의 event loss, duplicate 비율, redaction leakage, 처리 latency를 일정
+   기간 측정하는 metrics/report를 추가한다.
+3. 측정 결과를 검토한 뒤 notification 또는 외부 LLM 활성화를 별도 승인한다.
+
+다음 세션 시작 프롬프트:
+
+    최신 기준은 docs/session-handoff-2026-07-04-wazuh-hardening.md의
+    '최종 인계 기준' 섹션이야. Wazuh restore/TLS/RBAC/AI shadow까지 완료됐고
+    verify-all도 전부 통과했어. 먼저 Terraform state와 windows-test/Keycloak
+    192.168.0.60 드리프트를 안전하게 조사하고, apply 전에 변경 계획을 보고해줘.

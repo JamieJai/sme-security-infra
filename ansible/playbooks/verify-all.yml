@@ -200,6 +200,18 @@
         cmd: systemctl is-enabled wazuh-alert-snapshot.timer
       changed_when: false
 
+    - name: Verify Wazuh offsite replication timer and freshness
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-enabled wazuh-snapshot-replica.timer
+        mountpoint -q /mnt/wazuh-snapshot-replica
+        test -f /mnt/wazuh-snapshot-replica/.last-success
+        age=$(( $(date +%s) - $(date -d "$(cat /mnt/wazuh-snapshot-replica/.last-success)" +%s) ))
+        test "$age" -le 129600
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Verify Wazuh retention policy and successful snapshot
       ansible.builtin.shell: |
         set -euo pipefail
@@ -208,6 +220,60 @@
         ca=/etc/wazuh-indexer/certs/root-ca.pem
         curl --silent --show-error --fail --cert "$cert" --key "$key" --cacert "$ca" https://127.0.0.1:9200/_plugins/_ism/policies/wazuh-alerts-retention-30d | python3 -c 'import json,sys; p=json.load(sys.stdin)["policy"]; assert any(t.get("conditions",{}).get("min_index_age")=="30d" for s in p["states"] for t in s.get("transitions",[]))'
         curl --silent --show-error --fail --cert "$cert" --key "$key" --cacert "$ca" https://127.0.0.1:9200/_snapshot/wazuh-alerts/_all | python3 -c 'import json,sys; s=json.load(sys.stdin).get("snapshots",[]); assert s and any(x.get("state")=="SUCCESS" for x in s)'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify monthly isolated restore test
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-enabled wazuh-restore-test.timer
+        test -s /var/lib/wazuh-restore-test-state/last-success
+        age=$(( $(date +%s) - $(date -d "$(cut -d" " -f1 /var/lib/wazuh-restore-test-state/last-success)" +%s) ))
+        test "$age" -le 3024000
+        grep -Eq "snapshot=wazuh-alerts-[0-9]{8} documents=[0-9]+" /var/lib/wazuh-restore-test-state/last-success
+        ! systemctl is-active --quiet wazuh-restore-test-indexer.service
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify Dashboard certificate SANs
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cert=/etc/wazuh-dashboard/certs/wazuh-dashboard.pem
+        openssl x509 -in "$cert" -noout -checkhost wazuh.toss.lan
+        openssl x509 -in "$cert" -noout -checkip 192.168.0.30
+        openssl x509 -in "$cert" -noout -checkip 127.0.0.1
+        systemctl is-active --quiet wazuh-dashboard
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify SME RBAC roles and mappings
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cert=/etc/wazuh-indexer/certs/admin.pem
+        key=/etc/wazuh-indexer/certs/admin-key.pem
+        ca=/etc/wazuh-indexer/certs/root-ca.pem
+        base=https://127.0.0.1:9200/_plugins/_security/api
+        curl -sSf --cert "$cert" --key "$key" --cacert "$ca" "$base/rolesmapping" | python3 -c 'import json,sys; j=json.load(sys.stdin); assert "Security_Team" in j["sme_wazuh_analyst"]["backend_roles"]; assert "Wazuh_ReadOnly" in j["sme_wazuh_readonly"]["backend_roles"]'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify AI shadow collector safety state
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-active --quiet wazuh-ai-shadow.service
+        test "$(systemctl show wazuh-ai-shadow.service -p User --value)" = wazuh-ai-shadow
+        python3 - <<'PY'
+        import datetime, sqlite3
+        db=sqlite3.connect("/var/lib/wazuh-ai-shadow/spool.db")
+        value=db.execute("select value from state where key='last_success'").fetchone()[0]
+        stamp=datetime.datetime.fromisoformat(value)
+        now=datetime.datetime.now(datetime.timezone.utc)
+        assert (now-stamp).total_seconds() < 120
+        PY
       args:
         executable: /bin/bash
       changed_when: false

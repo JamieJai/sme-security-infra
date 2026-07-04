@@ -44,3 +44,16 @@ SSH 22 정책은 원격 잠금 방지를 위해 이 playbook에서 변경하지 
 현재 dashboard certificate SAN은 localhost 중심의 installer 인증서다. 내부 사용자의 hostname 검증을 위해 wazuh.toss.lan과 192.168.0.30 SAN을 포함한 인증서 교체가 필요하다. 이 작업은 dashboard trust 배포와 rollback을 포함한 별도 certificate rotation으로 수행한다.
 
 공용 admin 제거, analyst/read-only RBAC 분리, index snapshot repository와 30일 retention도 다음 단계에서 적용한다.
+
+## Dashboard 인증서와 RBAC
+
+`wazuh-dashboard-certificate.yml`은 Dashboard 전용 내부 CA로
+`wazuh.toss.lan`, `192.168.0.30`, `127.0.0.1` SAN 인증서를 발급한다. 기존
+인증서는 `.pre-sme-rotation`으로 보존하며 TLS 검증 실패 시 자동 rollback한다.
+CA는 관리 대상 Linux 호스트 trust store에 배포된다. 외부 관리자 PC에는
+`/etc/wazuh-dashboard/pki/dashboard-ca.pem`을 별도로 신뢰 배포해야 한다.
+
+`wazuh-rbac.yml`은 SAML/LDAP backend role을 기준으로 `Security_Team`에 analyst,
+`Wazuh_ReadOnly`에 read-only 권한을 부여한다. 내장 admin과 `sme_breakglass`
+credential은 `group_vars/wazuh-rbac-vault.yml`에만 암호화해 관리한다. break-glass는
+SSO 장애 시에만 사용하고 사용 후 즉시 rotation한다.

@@ -1,0 +1,202 @@
+---
+- name: Create a hostname-valid Wazuh Dashboard certificate
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  vars:
+    pki_dir: /etc/wazuh-dashboard/pki
+    cert_dir: /etc/wazuh-dashboard/certs
+  tasks:
+    - name: Create protected Dashboard PKI directory
+      ansible.builtin.file:
+        path: "{{ pki_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+    - name: Install certificate request configuration
+      ansible.builtin.copy:
+        dest: "{{ pki_dir }}/dashboard-cert.cnf"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          [req]
+          distinguished_name = dn
+          prompt = no
+          [dn]
+          CN = wazuh.toss.lan
+          O = SME Security Infrastructure
+          OU = Wazuh Dashboard
+          [v3]
+          basicConstraints = critical,CA:false
+          keyUsage = critical,digitalSignature,keyEncipherment
+          extendedKeyUsage = serverAuth
+          subjectAltName = @san
+          [san]
+          DNS.1 = wazuh.toss.lan
+          IP.1 = 192.168.0.30
+          IP.2 = 127.0.0.1
+    - name: Generate Dashboard-only CA private key
+      ansible.builtin.command:
+        cmd: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out {{ pki_dir }}/dashboard-ca-key.pem
+        creates: "{{ pki_dir }}/dashboard-ca-key.pem"
+    - name: Protect Dashboard CA private key
+      ansible.builtin.file:
+        path: "{{ pki_dir }}/dashboard-ca-key.pem"
+        owner: root
+        group: root
+        mode: "0400"
+    - name: Generate Dashboard-only CA certificate
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -x509 -new -sha256 -days 3650
+          -key {{ pki_dir }}/dashboard-ca-key.pem
+          -subj /CN=SME-Wazuh-Dashboard-CA/O=SME-Security
+          -out {{ pki_dir }}/dashboard-ca.pem
+        creates: "{{ pki_dir }}/dashboard-ca.pem"
+    - name: Generate Dashboard private key
+      ansible.builtin.command:
+        cmd: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out {{ pki_dir }}/wazuh-dashboard-key.pem
+        creates: "{{ pki_dir }}/wazuh-dashboard-key.pem"
+    - name: Generate Dashboard CSR
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -new -sha256 -key {{ pki_dir }}/wazuh-dashboard-key.pem
+          -config {{ pki_dir }}/dashboard-cert.cnf
+          -out {{ pki_dir }}/wazuh-dashboard.csr
+        creates: "{{ pki_dir }}/wazuh-dashboard.csr"
+    - name: Sign Dashboard certificate with required SANs
+      ansible.builtin.command:
+        cmd: >-
+          openssl x509 -req -sha256 -days 825
+          -in {{ pki_dir }}/wazuh-dashboard.csr
+          -CA {{ pki_dir }}/dashboard-ca.pem
+          -CAkey {{ pki_dir }}/dashboard-ca-key.pem
+          -CAcreateserial -extfile {{ pki_dir }}/dashboard-cert.cnf -extensions v3
+          -out {{ pki_dir }}/wazuh-dashboard.pem
+        creates: "{{ pki_dir }}/wazuh-dashboard.pem"
+    - name: Validate generated certificate before rotation
+      ansible.builtin.shell: |
+        set -euo pipefail
+        openssl verify -CAfile {{ pki_dir }}/dashboard-ca.pem {{ pki_dir }}/wazuh-dashboard.pem
+        openssl x509 -in {{ pki_dir }}/wazuh-dashboard.pem -noout -checkhost wazuh.toss.lan
+        openssl x509 -in {{ pki_dir }}/wazuh-dashboard.pem -noout -checkip 192.168.0.30
+        openssl x509 -in {{ pki_dir }}/wazuh-dashboard.pem -noout -checkip 127.0.0.1
+      args:
+        executable: /bin/bash
+      changed_when: false
+    - name: Read Dashboard CA for trust deployment
+      ansible.builtin.slurp:
+        src: "{{ pki_dir }}/dashboard-ca.pem"
+      register: dashboard_ca
+
+- name: Trust the Dashboard CA on managed Linux hosts
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install Dashboard CA in the system trust store
+      ansible.builtin.copy:
+        dest: /usr/local/share/ca-certificates/sme-wazuh-dashboard-ca.crt
+        content: "{{ hostvars[groups['wazuh_server'][0]].dashboard_ca.content | b64decode }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: trust_ca
+    - name: Refresh system CA trust
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      when: trust_ca.changed
+      changed_when: true
+
+- name: Rotate and verify the Wazuh Dashboard certificate
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  vars:
+    pki_dir: /etc/wazuh-dashboard/pki
+    cert_dir: /etc/wazuh-dashboard/certs
+  tasks:
+    - name: Rotate Dashboard TLS certificate with rollback
+      block:
+        - name: Preserve pre-rotation Dashboard certificate
+          ansible.builtin.copy:
+            src: "{{ cert_dir }}/wazuh-dashboard.pem"
+            dest: "{{ cert_dir }}/wazuh-dashboard.pem.pre-sme-rotation"
+            remote_src: true
+            force: false
+            owner: wazuh-dashboard
+            group: wazuh-dashboard
+            mode: "0400"
+        - name: Preserve pre-rotation Dashboard private key
+          ansible.builtin.copy:
+            src: "{{ cert_dir }}/wazuh-dashboard-key.pem"
+            dest: "{{ cert_dir }}/wazuh-dashboard-key.pem.pre-sme-rotation"
+            remote_src: true
+            force: false
+            owner: wazuh-dashboard
+            group: wazuh-dashboard
+            mode: "0400"
+        - name: Install hostname-valid Dashboard certificate
+          ansible.builtin.copy:
+            src: "{{ pki_dir }}/wazuh-dashboard.pem"
+            dest: "{{ cert_dir }}/wazuh-dashboard.pem"
+            remote_src: true
+            owner: wazuh-dashboard
+            group: wazuh-dashboard
+            mode: "0400"
+          register: dashboard_cert
+        - name: Install Dashboard private key
+          ansible.builtin.copy:
+            src: "{{ pki_dir }}/wazuh-dashboard-key.pem"
+            dest: "{{ cert_dir }}/wazuh-dashboard-key.pem"
+            remote_src: true
+            owner: wazuh-dashboard
+            group: wazuh-dashboard
+            mode: "0400"
+          register: dashboard_key
+        - name: Restart Dashboard after certificate rotation
+          ansible.builtin.systemd:
+            name: wazuh-dashboard
+            state: restarted
+          when: dashboard_cert.changed or dashboard_key.changed
+        - name: Wait for Dashboard HTTPS
+          ansible.builtin.wait_for:
+            host: 127.0.0.1
+            port: 443
+            timeout: 60
+        - name: Verify Dashboard hostname and IP over HTTPS
+          ansible.builtin.shell: |
+            set -euo pipefail
+            curl --silent --show-error --noproxy '*' --cacert {{ pki_dir }}/dashboard-ca.pem \
+              --resolve wazuh.toss.lan:443:127.0.0.1 https://wazuh.toss.lan/ >/dev/null
+            curl --silent --show-error --noproxy '*' --cacert {{ pki_dir }}/dashboard-ca.pem \
+              https://127.0.0.1/ >/dev/null
+          args:
+            executable: /bin/bash
+          changed_when: false
+      rescue:
+        - name: Restore pre-rotation Dashboard certificate
+          ansible.builtin.copy:
+            src: "{{ cert_dir }}/wazuh-dashboard.pem.pre-sme-rotation"
+            dest: "{{ cert_dir }}/wazuh-dashboard.pem"
+            remote_src: true
+            owner: wazuh-dashboard
+            group: wazuh-dashboard
+            mode: "0400"
+        - name: Restore pre-rotation Dashboard private key
+          ansible.builtin.copy:
+            src: "{{ cert_dir }}/wazuh-dashboard-key.pem.pre-sme-rotation"
+            dest: "{{ cert_dir }}/wazuh-dashboard-key.pem"
+            remote_src: true
+            owner: wazuh-dashboard
+            group: wazuh-dashboard
+            mode: "0400"
+        - name: Restart Dashboard after rollback
+          ansible.builtin.systemd:
+            name: wazuh-dashboard
+            state: restarted
+        - name: Stop after certificate rollback
+          ansible.builtin.fail:
+            msg: Dashboard certificate verification failed; the previous certificate was restored.

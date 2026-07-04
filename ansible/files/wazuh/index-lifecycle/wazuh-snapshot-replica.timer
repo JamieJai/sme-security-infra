@@ -1,0 +1,11 @@
+[Unit]
+Description=Replicate Wazuh snapshots to storage01 daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Asia/Seoul
+RandomizedDelaySec=15m
+Persistent=true
+Unit=wazuh-snapshot-replica.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,95 @@
+---
+- name: Configure isolated Wazuh snapshot restore tests
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create restore test directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: wazuh-indexer
+        group: wazuh-indexer
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /etc/wazuh-restore-test, mode: "0750" }
+        - { path: /var/lib/wazuh-restore-test, mode: "0750" }
+        - { path: /var/lib/wazuh-restore-test/tmp, mode: "0750" }
+        - { path: /var/log/wazuh-restore-test, mode: "0750" }
+    - name: Install isolated indexer configuration
+      ansible.builtin.copy:
+        src: ../files/wazuh/restore-test/opensearch.yml
+        dest: /etc/wazuh-restore-test/opensearch.yml
+        owner: root
+        group: wazuh-indexer
+        mode: "0640"
+    - name: Reuse packaged JVM options
+      ansible.builtin.copy:
+        src: /etc/wazuh-indexer/jvm.options
+        dest: /etc/wazuh-restore-test/jvm.options
+        remote_src: true
+        force: false
+        owner: root
+        group: wazuh-indexer
+        mode: "0640"
+    - name: Reuse packaged logging configuration
+      ansible.builtin.copy:
+        src: /etc/wazuh-indexer/log4j2.properties
+        dest: /etc/wazuh-restore-test/log4j2.properties
+        remote_src: true
+        force: false
+        owner: root
+        group: wazuh-indexer
+        mode: "0640"
+    - name: Set isolated indexer heap
+      ansible.builtin.replace:
+        path: /etc/wazuh-restore-test/jvm.options
+        regexp: "^-Xms1024m$"
+        replace: "-Xms512m"
+    - name: Set isolated indexer maximum heap
+      ansible.builtin.replace:
+        path: /etc/wazuh-restore-test/jvm.options
+        regexp: "^-Xmx1024m$"
+        replace: "-Xmx512m"
+    - name: Use isolated GC log path
+      ansible.builtin.replace:
+        path: /etc/wazuh-restore-test/jvm.options
+        regexp: '/var/log/wazuh-indexer/gc.log'
+        replace: "/var/log/wazuh-restore-test/gc.log"
+    - name: Install restore test script
+      ansible.builtin.copy:
+        src: ../files/wazuh/restore-test/wazuh-restore-test.sh
+        dest: /usr/local/sbin/wazuh-restore-test
+        owner: root
+        group: root
+        mode: "0750"
+    - name: Install restore test systemd units
+      ansible.builtin.copy:
+        src: "../files/wazuh/restore-test/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - wazuh-restore-test-indexer.service
+        - wazuh-restore-test.service
+        - wazuh-restore-test.timer
+    - name: Enable monthly restore test timer
+      ansible.builtin.systemd:
+        name: wazuh-restore-test.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Run initial isolated restore test
+      ansible.builtin.command:
+        cmd: systemctl start wazuh-restore-test.service
+      changed_when: false
+    - name: Verify successful restore test record
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -s /var/lib/wazuh-restore-test-state/last-success
+        grep -Eq 'snapshot=wazuh-alerts-[0-9]{8} documents=[0-9]+' /var/lib/wazuh-restore-test-state/last-success
+        systemctl is-active --quiet wazuh-restore-test-indexer.service && exit 1 || true
+      args:
+        executable: /bin/bash
+      changed_when: false

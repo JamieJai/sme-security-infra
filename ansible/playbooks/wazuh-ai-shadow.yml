@@ -1,0 +1,96 @@
+---
+- name: Deploy the Wazuh AI defense shadow pipeline
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create non-login shadow worker account
+      ansible.builtin.user:
+        name: wazuh-ai-shadow
+        group: wazuh
+        system: true
+        shell: /usr/sbin/nologin
+        home: /nonexistent
+        create_home: false
+    - name: Create shadow pipeline directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /usr/local/lib/wazuh-ai-shadow, owner: root, group: root, mode: "0755" }
+        - { path: /var/lib/wazuh-ai-shadow, owner: wazuh-ai-shadow, group: wazuh, mode: "0750" }
+    - name: Install shadow collector
+      ansible.builtin.copy:
+        src: ../files/wazuh/ai-shadow/wazuh_ai_shadow.py
+        dest: /usr/local/lib/wazuh-ai-shadow/wazuh_ai_shadow.py
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart shadow collector
+    - name: Install shadow collector unit tests
+      ansible.builtin.copy:
+        src: ../files/wazuh/ai-shadow/test_wazuh_ai_shadow.py
+        dest: /usr/local/lib/wazuh-ai-shadow/test_wazuh_ai_shadow.py
+        owner: root
+        group: root
+        mode: "0644"
+    - name: Run shadow pipeline unit tests on target
+      ansible.builtin.command:
+        cmd: python3 /usr/local/lib/wazuh-ai-shadow/test_wazuh_ai_shadow.py -v
+      changed_when: false
+    - name: Install shadow collector systemd unit
+      ansible.builtin.copy:
+        src: ../files/wazuh/ai-shadow/wazuh-ai-shadow.service
+        dest: /etc/systemd/system/wazuh-ai-shadow.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart shadow collector
+    - name: Enable and start shadow collector
+      ansible.builtin.systemd:
+        name: wazuh-ai-shadow.service
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Apply collector changes before verification
+      ansible.builtin.meta: flush_handlers
+    - name: Wait for durable collector checkpoint
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for attempt in {1..20}; do
+          if python3 -c 'import sqlite3; db=sqlite3.connect("/var/lib/wazuh-ai-shadow/spool.db"); assert db.execute("select value from state where key=\"last_success\"").fetchone()' 2>/dev/null; then
+            exit 0
+          fi
+          sleep 1
+        done
+        exit 1
+      args:
+        executable: /bin/bash
+      changed_when: false
+    - name: Verify shadow-only safety properties
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-active --quiet wazuh-ai-shadow.service
+        test "$(systemctl show wazuh-ai-shadow.service -p User --value)" = wazuh-ai-shadow
+        python3 - <<'PY'
+        import json, sqlite3
+        db=sqlite3.connect('/var/lib/wazuh-ai-shadow/spool.db')
+        columns={x[1] for x in db.execute('pragma table_info(events)')}
+        assert 'full_log' not in columns and 'password' not in columns
+        for payload,enrichment in db.execute('select event_json,enrichment_json from events where enrichment_json is not null limit 100'):
+            assert 'password' not in payload.lower() and 'authorization' not in payload.lower()
+            result=json.loads(enrichment)
+            assert result['notification'] is False and result['automated_action'] is False
+        PY
+      args:
+        executable: /bin/bash
+      changed_when: false
+  handlers:
+    - name: Restart shadow collector
+      ansible.builtin.systemd:
+        name: wazuh-ai-shadow.service
+        state: restarted
+        daemon_reload: true

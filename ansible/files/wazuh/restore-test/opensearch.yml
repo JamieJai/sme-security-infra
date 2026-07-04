@@ -1,0 +1,12 @@
+cluster.name: wazuh-restore-test
+node.name: restore-test-node
+path.data: /var/lib/wazuh-restore-test
+path.logs: /var/log/wazuh-restore-test
+path.repo: ["/mnt/wazuh-snapshot-replica"]
+network.host: 127.0.0.1
+http.port: 19201
+transport.port: 19301
+discovery.type: single-node
+bootstrap.memory_lock: false
+plugins.security.disabled: true
+action.destructive_requires_name: false
