@@ -1,0 +1,49 @@
+---
+- name: Configure AD DC chrony without self-referencing NTP sources
+  hosts: primary_dc:secondary_dc
+  become: true
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Install chrony
+      ansible.builtin.apt:
+        name: chrony
+        state: present
+
+    - name: Configure chrony for AD DCs
+      ansible.builtin.template:
+        src: ../roles/samba-additional-dc/templates/chrony.conf.j2
+        dest: /etc/chrony/chrony.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart chrony
+
+    - name: Start and enable chrony
+      ansible.builtin.systemd:
+        name: chrony
+        state: started
+        enabled: true
+
+    - name: Flush chrony restart before verification
+      ansible.builtin.meta: flush_handlers
+
+    - name: Show chrony tracking state
+      ansible.builtin.command:
+        cmd: chronyc tracking
+      register: chrony_tracking
+      changed_when: false
+
+    - name: Show chrony sources
+      ansible.builtin.command:
+        cmd: chronyc sources -v
+      register: chrony_sources
+      changed_when: false
+
+  handlers:
+    - name: Restart chrony
+      ansible.builtin.systemd:
+        name: chrony
+        state: restarted

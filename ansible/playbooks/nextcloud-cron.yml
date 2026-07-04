@@ -1,0 +1,45 @@
+---
+- name: Configure Nextcloud cron background jobs
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_cron_php: /var/www/nextcloud/cron.php
+
+  tasks:
+    - name: Install cron package
+      ansible.builtin.apt:
+        name: cron
+        state: present
+        update_cache: true
+
+    - name: Start and enable cron service
+      ansible.builtin.systemd:
+        name: cron
+        state: started
+        enabled: true
+
+    - name: Configure Nextcloud background jobs to use cron
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} background:cron
+      register: nextcloud_background_mode
+      changed_when: "'Set mode' in nextcloud_background_mode.stdout"
+
+    - name: Schedule Nextcloud background jobs
+      ansible.builtin.cron:
+        name: nextcloud-background-jobs
+        user: www-data
+        minute: "*/5"
+        job: php -f {{ nextcloud_cron_php }}
+
+    - name: Verify Nextcloud background job mode
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} config:app:get core backgroundjobs_mode
+      register: nextcloud_background_mode_verify
+      changed_when: false
+
+    - name: Verify cron service is active
+      ansible.builtin.command:
+        cmd: systemctl is-active cron
+      changed_when: false

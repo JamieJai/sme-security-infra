@@ -2,6 +2,12 @@ timezone: Asia/Seoul
 ntp_servers:
   - ntp.ubuntu.com
   - 192.168.0.20
+
+ntp_servers_by_host:
+  dc01:
+    - 192.168.0.21
+  dc02:
+    - ntp.ubuntu.com
 domain_name: toss.lan
 dns_server: 192.168.0.20
 dns_servers:

@@ -1,5 +1,9 @@
-{% for server in ntp_servers %}
+{% set chrony_ntp_servers = ntp_servers_by_host[inventory_hostname] | default(ntp_servers) %}
+{% set self_ntp_sources = [inventory_hostname, ansible_host | default('')] %}
+{% for server in chrony_ntp_servers %}
+{% if server not in self_ntp_sources %}
 pool {{ server }} iburst
+{% endif %}
 {% endfor %}
 
 driftfile /var/lib/chrony/chrony.drift

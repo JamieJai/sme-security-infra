@@ -1,11 +1,16 @@
 ---
-- name: Deploy Samba Active Directory Domain Controller
-  hosts: dc01
+- name: Reconcile Samba additional domain controller
+  hosts: primary_dc
   become: true
 
   vars_files:
     - ../group_vars/all.yml
+    - ../group_vars/vault.yml
+  vars:
+    ad_realm: TOSS.LAN
+    ad_domain: TOSS
+    bootstrap_dc_host: dc02
+    bootstrap_dc_ip: 192.168.0.21
 
   roles:
-    - common
-    - samba-ad
+    - samba-additional-dc

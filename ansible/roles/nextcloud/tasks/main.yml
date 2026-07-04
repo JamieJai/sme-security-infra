@@ -20,6 +20,7 @@
       - php-smbclient
       - nfs-common
       - cifs-utils
+      - cron
     state: present
     update_cache: yes
 
@@ -43,6 +44,7 @@
   loop:
     - apache2
     - mariadb
+    - cron
 
 - name: Create MariaDB database for Nextcloud
   community.mysql.mysql_db:
@@ -93,6 +95,19 @@
     --admin-pass="{{ vault_nextcloud_admin_password }}"
   args:
     creates: /var/www/nextcloud/config/config.php
+
+- name: Configure Nextcloud background jobs to use cron
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/nextcloud/occ background:cron
+  register: nextcloud_background_mode
+  changed_when: "'Set mode' in nextcloud_background_mode.stdout"
+
+- name: Schedule Nextcloud background jobs
+  ansible.builtin.cron:
+    name: nextcloud-background-jobs
+    user: www-data
+    minute: "*/5"
+    job: php -f /var/www/nextcloud/cron.php
 
 - name: Configure Apache for Nextcloud
   ansible.builtin.template:
