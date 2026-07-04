@@ -1,0 +1,130 @@
+---
+- name: Verify Keycloak identity baseline
+  hosts: iam_server
+  become: true
+  gather_facts: false
+
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    nextcloud_oidc_client_id: nextcloud-oidc
+    keycloak_ldap_provider_name: Samba-AD
+    keycloak_groups_claim_mapper_name: nextcloud-groups
+
+  tasks:
+    - name: Read Keycloak admin password from systemd unit
+      ansible.builtin.shell: |
+        systemctl cat keycloak | sed -n 's/^Environment="KEYCLOAK_ADMIN_PASSWORD=\(.*\)"/\1/p' | tail -1
+      register: keycloak_admin_password_result
+      changed_when: false
+      no_log: true
+
+    - name: Authenticate to Keycloak CLI
+      ansible.builtin.command:
+        cmd: >-
+          {{ keycloak_path }}/bin/kcadm.sh config credentials
+          --server http://localhost:8080
+          --realm master
+          --user {{ keycloak_admin_user }}
+          --password {{ keycloak_admin_password_result.stdout }}
+      changed_when: false
+      no_log: true
+
+    - name: Verify homelab realm is enabled
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get realms/{{ keycloak_realm }} --fields realm,enabled |
+        python3 -c 'import json,sys; j=json.load(sys.stdin); assert j.get("realm") == "{{ keycloak_realm }}" and j.get("enabled") is True; print("realm enabled")'
+      changed_when: false
+
+    - name: Verify Samba AD LDAP federation exists
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get components -r {{ keycloak_realm }} -q providerId=ldap --fields id,name,providerId |
+        python3 -c 'import json,sys; d=json.load(sys.stdin); assert any(c.get("name") == "{{ keycloak_ldap_provider_name }}" and c.get("providerId") == "ldap" for c in d); print("ldap federation exists")'
+      changed_when: false
+
+    - name: Verify Nextcloud OIDC client exists and is confidential
+      ansible.builtin.shell: |
+        {{ keycloak_path }}/bin/kcadm.sh get clients -r {{ keycloak_realm }} -q clientId={{ nextcloud_oidc_client_id }} --fields clientId,enabled,protocol,publicClient |
+        python3 -c 'import json,sys; d=json.load(sys.stdin); assert d and d[0].get("clientId") == "{{ nextcloud_oidc_client_id }}" and d[0].get("enabled") is True and d[0].get("protocol") == "openid-connect" and d[0].get("publicClient") is False; print("nextcloud oidc client ok")'
+      changed_when: false
+
+    - name: Verify Nextcloud groups claim mapper
+      ansible.builtin.shell: |
+        cid=$({{ keycloak_path }}/bin/kcadm.sh get clients -r {{ keycloak_realm }} -q clientId={{ nextcloud_oidc_client_id }} --fields id | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["id"] if d else "")')
+        {{ keycloak_path }}/bin/kcadm.sh get clients/$cid/protocol-mappers/models -r {{ keycloak_realm }} |
+        python3 -c 'import json,sys; d=json.load(sys.stdin); m=next((x for x in d if x.get("name") == "{{ keycloak_groups_claim_mapper_name }}"), None); assert m and m.get("protocolMapper") == "oidc-group-membership-mapper"; c=m.get("config", {}); assert c.get("claim.name") == "groups" and c.get("id.token.claim") == "true" and c.get("access.token.claim") == "true"; print("groups claim mapper ok")'
+      changed_when: false
+
+- name: Verify AD users and groups used by Nextcloud
+  hosts: active_dc
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/mail.yml
+
+  vars:
+    mail_domain: "{{ postfix_domain | default(domain_name) }}"
+
+  tasks:
+    - name: Verify expected AD groups exist
+      ansible.builtin.command:
+        cmd: samba-tool group show {{ item }}
+      loop: "{{ nextcloud_oidc_department_groups }}"
+      changed_when: false
+
+    - name: Verify AD users with mail attributes exist
+      ansible.builtin.shell: |
+        count=$(samba-tool user list | while read -r user; do
+          samba-tool user show "$user" 2>/dev/null | awk -v domain="{{ mail_domain }}" '
+            /^sAMAccountName:/ { sam=$2 }
+            /^mail:/ { mail=$2 }
+            END { if (sam != "" && mail ~ ("@" domain "$")) print sam }
+          '
+        done | wc -l)
+        test "$count" -gt 0
+        echo "$count users with mail attributes"
+      changed_when: false
+
+- name: Verify Nextcloud OIDC, groups, storage, and addressbook
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_oidc_provider_id: homelab-keycloak
+
+  tasks:
+    - name: Verify Nextcloud OIDC provider group provisioning
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} user_oidc:providers --output=json |
+        python3 -c 'import json,sys; j=json.load(sys.stdin); p=j[0] if isinstance(j, list) else j; s=p.get("settings", {}); assert p.get("identifier") == "{{ nextcloud_oidc_provider_id }}"; assert s.get("mappingGroups") == "groups" and s.get("groupProvisioning") is True and s.get("restrictLoginToGroups") is True; print("nextcloud oidc provider ok")'
+      changed_when: false
+
+    - name: Verify expected Nextcloud groups exist
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} group:list --output=json |
+        python3 -c 'import json,sys; groups=json.load(sys.stdin); missing=[g for g in {{ nextcloud_oidc_department_groups | to_json }} if g not in groups]; assert not missing, missing; print("nextcloud groups ok")'
+      changed_when: false
+
+    - name: Verify department external storage group restrictions
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} files_external:list --output=json |
+        python3 -c 'import json,sys; mounts=json.load(sys.stdin); expected={{ nextcloud_department_storage | to_json }}; by_mount={m.get("mount_point"): m for m in mounts}; missing=[]; bad=[];
+        [missing.append("/"+e["nextcloud_mount"]) for e in expected if "/"+e["nextcloud_mount"] not in by_mount];
+        [bad.append(e["nextcloud_mount"]) for e in expected if "/"+e["nextcloud_mount"] in by_mount and e["group"] not in by_mount["/"+e["nextcloud_mount"]].get("applicable_groups", [])];
+        assert not missing and not bad, {"missing": missing, "bad": bad}; print("external storage restrictions ok")'
+      changed_when: false
+
+    - name: Verify system addressbook is exposed
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} config:system:get system_addressbook_exposed
+      register: nextcloud_system_addressbook_exposed
+      changed_when: false
+      failed_when: nextcloud_system_addressbook_exposed.stdout != 'true'

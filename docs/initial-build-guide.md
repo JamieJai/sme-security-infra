@@ -113,6 +113,7 @@ ansible-playbook playbooks/nextcloud-integrations.yml
 ansible-playbook playbooks/nextcloud-mail.yml
 ansible-playbook playbooks/nextcloud-ad-addressbook.yml
 ansible-playbook playbooks/nextcloud-ad-addressbook-schedule.yml
+ansible-playbook playbooks/identity-flow-verify.yml
 ansible-playbook playbooks/nextcloud-talk.yml
 ```
 
