@@ -1,0 +1,10 @@
+<decoder name="sme-keycloak-event">
+  <program_name>^kc.sh$</program_name>
+  <prematch>org.keycloak.events</prematch>
+</decoder>
+
+<decoder name="sme-keycloak-event-fields">
+  <parent>sme-keycloak-event</parent>
+  <regex type="pcre2">type=([^,]+), realmId=([^,]+), clientId=([^,]+), userId=([^,]+), ipAddress=([^,]+), error=([^,]+)</regex>
+  <order>event_type,realm_id,client_id,user_id,srcip,error</order>
+</decoder>

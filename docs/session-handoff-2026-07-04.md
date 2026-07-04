@@ -1,4 +1,5 @@
 # Session Handoff - 2026-07-04
+\n후속 Wazuh hardening 및 verification 작업은 docs/session-handoff-2026-07-04-wazuh-hardening.md에 정리되어 있다.
 
 이 문서는 다음 작업 세션에서 현재 상태를 빠르게 이어받기 위한 요약이다. 기준 repo는 `/home/sysadmin/homelab-infra`이며 remote는 `git@github.com:JamieJai/sme-security-infra.git`이다.
 

@@ -1,0 +1,156 @@
+---
+- name: Configure Wazuh index retention and snapshots
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  vars:
+    indexer_url: https://127.0.0.1:9200
+    indexer_cert: /etc/wazuh-indexer/certs/admin.pem
+    indexer_key: /etc/wazuh-indexer/certs/admin-key.pem
+    indexer_ca: /etc/wazuh-indexer/certs/root-ca.pem
+    snapshot_path: /var/backups/wazuh-indexer
+    retention_policy_id: wazuh-alerts-retention-30d
+    retention_policy_file: /etc/wazuh-indexer/wazuh-alert-retention-policy.json
+
+  tasks:
+    - name: Create snapshot directory
+      ansible.builtin.file:
+        path: "{{ snapshot_path }}"
+        state: directory
+        owner: wazuh-indexer
+        group: wazuh-indexer
+        mode: "0750"
+
+    - name: Allow indexer filesystem snapshots
+      ansible.builtin.lineinfile:
+        path: /etc/wazuh-indexer/opensearch.yml
+        regexp: '^path\.repo:'
+        line: 'path.repo: ["{{ snapshot_path }}"]'
+        backup: true
+      notify: Restart Wazuh indexer
+
+    - name: Install alert retention policy definition
+      ansible.builtin.copy:
+        src: ../files/wazuh/index-lifecycle/alert-retention-policy.json
+        dest: "{{ retention_policy_file }}"
+        owner: root
+        group: wazuh-indexer
+        mode: "0640"
+
+    - name: Install snapshot script
+      ansible.builtin.copy:
+        src: ../files/wazuh/index-lifecycle/wazuh-alert-snapshot.sh
+        dest: /usr/local/sbin/wazuh-alert-snapshot
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Install snapshot systemd units
+      ansible.builtin.copy:
+        src: "../files/wazuh/index-lifecycle/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - wazuh-alert-snapshot.service
+        - wazuh-alert-snapshot.timer
+      notify: Reload systemd
+
+    - name: Flush service configuration handlers
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Wazuh indexer HTTPS
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 9200
+        timeout: 60
+
+    - name: Wait for green or yellow cluster health
+      ansible.builtin.shell: |
+        set -eu
+        for attempt in $(seq 1 30); do
+          status=$(curl --silent --show-error --fail +            --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} +            {{ indexer_url }}/_cluster/health |
+            python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+          case "$status" in green|yellow) exit 0;; esac
+          sleep 2
+        done
+        exit 1
+      changed_when: false
+    - name: Create or verify alert retention policy
+      ansible.builtin.shell: |
+        set -euo pipefail
+        common=(--silent --show-error --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }})
+        status=$(curl "${common[@]}" -o /tmp/wazuh-retention-current.json -w '%{http_code}' {{ indexer_url }}/_plugins/_ism/policies/{{ retention_policy_id }})
+        if [ "$status" = 404 ]; then
+          curl "${common[@]}" --fail -X PUT -H 'Content-Type: application/json' {{ indexer_url }}/_plugins/_ism/policies/{{ retention_policy_id }} --data-binary @{{ retention_policy_file }} >/dev/null
+          echo CREATED
+        elif [ "$status" = 200 ]; then
+          python3 -c 'import json,sys; p=json.load(open(sys.argv[1]))["policy"]; assert any(t.get("conditions",{}).get("min_index_age")=="30d" for s in p["states"] for t in s.get("transitions",[])); assert any(x.get("index_patterns")==["wazuh-alerts-4.x-*"] for x in p.get("ism_template",[]))' /tmp/wazuh-retention-current.json
+          echo PRESENT
+        else
+          cat /tmp/wazuh-retention-current.json >&2
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      register: retention_policy
+      changed_when: "'CREATED' in retention_policy.stdout"
+
+    - name: Attach retention policy to unmanaged existing alert indices
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl --silent --show-error --fail --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} {{ indexer_url }}/_plugins/_ism/explain/wazuh-alerts-4.x-* >/tmp/wazuh-alerts-ism-explain.json
+        python3 -c 'import json; j=json.load(open("/tmp/wazuh-alerts-ism-explain.json")); print("\n".join(name for name,value in j.items() if name != "total_managed_indices" and not value.get("policy_id")))' >/tmp/wazuh-unmanaged-indices
+        count=0
+        while IFS= read -r index; do
+          test -n "$index" || continue
+          curl --silent --show-error --fail --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} -X POST -H 'Content-Type: application/json' "{{ indexer_url }}/_plugins/_ism/add/$index" --data '{"policy_id":"{{ retention_policy_id }}"}' >/dev/null
+          count=$((count + 1))
+        done </tmp/wazuh-unmanaged-indices
+        echo "UPDATED=$count"
+      args:
+        executable: /bin/bash
+      register: retention_attachments
+      changed_when: retention_attachments.stdout != 'UPDATED=0'
+
+    - name: Register filesystem snapshot repository
+      ansible.builtin.shell: |
+        curl --silent --show-error --fail --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} -X PUT -H 'Content-Type: application/json' {{ indexer_url }}/_snapshot/wazuh-alerts --data '{"type":"fs","settings":{"location":"{{ snapshot_path }}","compress":true}}' >/dev/null
+      changed_when: false
+
+    - name: Verify snapshot repository
+      ansible.builtin.shell: |
+        curl --silent --show-error --fail --cert {{ indexer_cert }} --key {{ indexer_key }} --cacert {{ indexer_ca }} -X POST {{ indexer_url }}/_snapshot/wazuh-alerts/_verify | python3 -c 'import json,sys; assert json.load(sys.stdin).get("nodes")'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Enable daily snapshot timer
+      ansible.builtin.systemd:
+        name: wazuh-alert-snapshot.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Create initial alert snapshot
+      ansible.builtin.command:
+        cmd: systemctl start wazuh-alert-snapshot.service
+      changed_when: false
+
+    - name: Verify initial snapshot succeeded
+      ansible.builtin.command:
+        cmd: systemctl is-failed wazuh-alert-snapshot.service
+      register: snapshot_service_state
+      changed_when: false
+      failed_when: snapshot_service_state.stdout != 'inactive'
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart Wazuh indexer
+      ansible.builtin.systemd:
+        name: wazuh-indexer
+        state: restarted

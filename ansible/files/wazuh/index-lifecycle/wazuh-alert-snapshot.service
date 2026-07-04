@@ -1,0 +1,10 @@
+[Unit]
+Description=Create Wazuh alert index snapshot
+After=wazuh-indexer.service
+Requires=wazuh-indexer.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wazuh-alert-snapshot
+User=root
+Group=root

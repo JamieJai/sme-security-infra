@@ -31,8 +31,12 @@
 | Wazuh | `playbooks/wazuh-server.yml` | Wazuh all-in-one 서버 |
 | Wazuh | `playbooks/wazuh-agent-deploy.yml` | Wazuh agent 배포 |
 | Wazuh | `playbooks/wazuh-agent-logs.yml` | 역할별 로그 수집 |
+| Wazuh | `playbooks/wazuh-custom-detections.yml` | Custom decoder/rule 배포 및 fixture test |
+| Wazuh | `playbooks/wazuh-platform-hardening.yml` | Version hold, API bind, UFW, TLS 기준 적용 |
+| Wazuh | `playbooks/wazuh-index-lifecycle.yml` | 30일 retention, 일일 snapshot 및 90일 정리 |
 | Monitoring | `playbooks/samba-domain-backup.yml` | Active DC 백업 |
 | Monitoring | `playbooks/certificate-expiry-monitor.yml` | 인증서 만료 모니터링 |
+| Verification | `playbooks/verify-all.yml` | 전체 인프라 read-only smoke test |
 
 ## 2. 운영 작업 playbook
 

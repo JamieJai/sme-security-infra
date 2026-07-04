@@ -1,0 +1,5 @@
+---
+wazuh_version: 4.10.4-1
+wazuh_install_script_url: https://packages.wazuh.com/4.10/wazuh-install.sh
+wazuh_install_script_checksum: sha256:68030d835f7c362a51ce6d7807e30c527d4b66509703fd73da66faeb4559f225
+wazuh_trusted_network: 192.168.0.0/24

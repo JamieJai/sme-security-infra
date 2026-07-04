@@ -11,8 +11,9 @@
 
 - name: Download Wazuh installation script
   ansible.builtin.get_url:
-    url: https://packages.wazuh.com/4.10/wazuh-install.sh
+    url: "{{ wazuh_install_script_url }}"
     dest: /tmp/wazuh-install.sh
+    checksum: "{{ wazuh_install_script_checksum }}"
     mode: '0755'
 
 - name: Run Wazuh all-in-one installation script
@@ -22,14 +23,22 @@
   register: wazuh_install_result
   notify: Restart Wazuh
 
-- name: Allow Wazuh ports in UFW
+- name: Hold Wazuh components at the validated version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - wazuh-manager
+    - wazuh-indexer
+    - wazuh-dashboard
+
+- name: Allow Wazuh internal ports in UFW
   ansible.builtin.ufw:
     rule: allow
     port: "{{ item }}"
     proto: tcp
+    from_ip: "{{ wazuh_trusted_network }}"
   loop:
     - 1514  # Agent connection
     - 1515  # Agent registration
-    - 55000 # Wazuh API
     - 443   # Wazuh Dashboard
-    - 9200  # Indexer

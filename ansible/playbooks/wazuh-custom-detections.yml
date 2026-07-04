@@ -1,0 +1,135 @@
+---
+- name: Deploy and test SME Wazuh custom detections
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+
+  vars:
+    wazuh_decoder_path: /var/ossec/etc/decoders/sme_decoders.xml
+    wazuh_rule_path: /var/ossec/etc/rules/sme_rules.xml
+    wazuh_fixture_dir: /var/ossec/etc/sme-detection-fixtures
+    wazuh_test_script: /var/ossec/bin/test-sme-detections
+
+  tasks:
+    - name: Check for an existing custom decoder
+      ansible.builtin.stat:
+        path: "{{ wazuh_decoder_path }}"
+      register: previous_decoder_stat
+
+    - name: Check for existing custom rules
+      ansible.builtin.stat:
+        path: "{{ wazuh_rule_path }}"
+      register: previous_rule_stat
+
+    - name: Back up the existing custom decoder in memory
+      ansible.builtin.slurp:
+        src: "{{ wazuh_decoder_path }}"
+      register: previous_decoder
+      when: previous_decoder_stat.stat.exists
+
+    - name: Back up existing custom rules in memory
+      ansible.builtin.slurp:
+        src: "{{ wazuh_rule_path }}"
+      register: previous_rule
+      when: previous_rule_stat.stat.exists
+
+    - name: Create detection fixture directory
+      ansible.builtin.file:
+        path: "{{ wazuh_fixture_dir }}"
+        state: directory
+        owner: root
+        group: wazuh
+        mode: "0750"
+
+    - name: Install redacted detection fixtures
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ wazuh_fixture_dir }}/{{ item | basename }}"
+        owner: root
+        group: wazuh
+        mode: "0640"
+      loop: "{{ query('ansible.builtin.fileglob', '../files/wazuh/fixtures/*.log') }}"
+
+    - name: Install detection test runner
+      ansible.builtin.copy:
+        src: ../files/wazuh/test-detections.sh
+        dest: "{{ wazuh_test_script }}"
+        owner: root
+        group: wazuh
+        mode: "0750"
+
+    - name: Deploy custom detection transaction
+      block:
+        - name: Install Keycloak decoder
+          ansible.builtin.copy:
+            src: ../files/wazuh/decoders/sme_decoders.xml
+            dest: "{{ wazuh_decoder_path }}"
+            owner: root
+            group: wazuh
+            mode: "0640"
+          notify: Restart Wazuh manager
+
+        - name: Install SME custom rules
+          ansible.builtin.copy:
+            src: ../files/wazuh/rules/sme_rules.xml
+            dest: "{{ wazuh_rule_path }}"
+            owner: root
+            group: wazuh
+            mode: "0640"
+          notify: Restart Wazuh manager
+
+        - name: Validate Wazuh analysis configuration
+          ansible.builtin.command:
+            cmd: /var/ossec/bin/wazuh-analysisd -t
+          changed_when: false
+
+        - name: Run custom detection fixture tests
+          ansible.builtin.command:
+            cmd: "{{ wazuh_test_script }} {{ wazuh_fixture_dir }}"
+          register: wazuh_detection_tests
+          changed_when: false
+
+        - name: Show custom detection test results
+          ansible.builtin.debug:
+            var: wazuh_detection_tests.stdout_lines
+
+      rescue:
+        - name: Restore previous decoder
+          ansible.builtin.copy:
+            content: "{{ previous_decoder.content | b64decode }}"
+            dest: "{{ wazuh_decoder_path }}"
+            owner: root
+            group: wazuh
+            mode: "0640"
+          when: previous_decoder_stat.stat.exists
+
+        - name: Remove new decoder when none existed
+          ansible.builtin.file:
+            path: "{{ wazuh_decoder_path }}"
+            state: absent
+          when: not previous_decoder_stat.stat.exists
+
+        - name: Restore previous rules
+          ansible.builtin.copy:
+            content: "{{ previous_rule.content | b64decode }}"
+            dest: "{{ wazuh_rule_path }}"
+            owner: root
+            group: wazuh
+            mode: "0640"
+          when: previous_rule_stat.stat.exists
+
+        - name: Remove new rules when none existed
+          ansible.builtin.file:
+            path: "{{ wazuh_rule_path }}"
+            state: absent
+          when: not previous_rule_stat.stat.exists
+
+        - name: Report rolled back custom detection deployment
+          ansible.builtin.fail:
+            msg: Custom detection validation failed; previous decoder and rules were restored.
+
+  handlers:
+    - name: Restart Wazuh manager
+      ansible.builtin.systemd:
+        name: wazuh-manager
+        state: restarted

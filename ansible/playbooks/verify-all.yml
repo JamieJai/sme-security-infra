@@ -1,0 +1,245 @@
+---
+- name: Verify Terraform configuration
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  tags: [terraform]
+  vars:
+    terraform_dir: "{{ playbook_dir }}/../../terraform"
+  tasks:
+    - name: Verify Terraform formatting
+      ansible.builtin.command:
+        cmd: terraform fmt -check -recursive
+        chdir: "{{ terraform_dir }}"
+      changed_when: false
+    - name: Validate Terraform configuration
+      ansible.builtin.command:
+        cmd: terraform validate
+        chdir: "{{ terraform_dir }}"
+      changed_when: false
+
+- name: Verify host reachability and operating system health
+  hosts: all
+  become: true
+  gather_facts: false
+  tags: [baseline]
+  tasks:
+    - name: Verify Ansible connectivity
+      ansible.builtin.ping:
+    - name: Check for failed systemd units
+      ansible.builtin.command:
+        cmd: systemctl --failed --no-legend --no-pager
+      register: failed_systemd_units
+      changed_when: false
+      failed_when: failed_systemd_units.stdout | trim | length > 0
+    - name: Verify NTP synchronization
+      ansible.builtin.command:
+        cmd: timedatectl show -p NTPSynchronized --value
+      register: ntp_synchronized
+      changed_when: false
+      failed_when: ntp_synchronized.stdout | trim != 'yes'
+    - name: Verify Wazuh agent is active
+      ansible.builtin.command:
+        cmd: systemctl is-active wazuh-agent
+      changed_when: false
+      when: inventory_hostname not in groups['wazuh_server']
+
+- name: Verify Samba AD health
+  hosts: primary_dc:secondary_dc
+  become: true
+  gather_facts: false
+  tags: [ad]
+  tasks:
+    - name: Verify Samba AD DC service is active
+      ansible.builtin.command:
+        cmd: systemctl is-active samba-ad-dc
+      changed_when: false
+    - name: Verify directory replication
+      ansible.builtin.command:
+        cmd: samba-tool drs showrepl --summary
+      register: ad_replication
+      changed_when: false
+      failed_when: ad_replication.rc != 0 or 'ALL GOOD' not in ad_replication.stdout
+    - name: Read FSMO role ownership
+      ansible.builtin.command:
+        cmd: samba-tool fsmo show
+      register: ad_fsmo
+      changed_when: false
+      run_once: true
+    - name: Verify all FSMO roles are reported
+      ansible.builtin.assert:
+        that:
+          - "'SchemaMasterRole' in ad_fsmo.stdout"
+          - "'InfrastructureMasterRole' in ad_fsmo.stdout"
+          - "'RidAllocationMasterRole' in ad_fsmo.stdout"
+          - "'PdcEmulationMasterRole' in ad_fsmo.stdout"
+          - "'DomainNamingMasterRole' in ad_fsmo.stdout"
+        fail_msg: Samba did not report all five FSMO roles.
+      run_once: true
+
+- name: Verify storage services
+  hosts: storage_server
+  become: true
+  gather_facts: false
+  tags: [storage]
+  tasks:
+    - name: Verify NFS and SMB services are active
+      ansible.builtin.command:
+        cmd: systemctl is-active nfs-server smbd
+      changed_when: false
+
+- name: Verify Keycloak service
+  hosts: iam_server
+  become: true
+  gather_facts: false
+  tags: [keycloak]
+  tasks:
+    - name: Verify Keycloak and LDAP proxy are active
+      ansible.builtin.command:
+        cmd: systemctl is-active keycloak haproxy
+      changed_when: false
+    - name: Verify local Keycloak HTTP endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/realms/homelab/.well-known/openid-configuration
+        status_code: 200
+        return_content: false
+
+- name: Verify Nextcloud service and integrations
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+  tags: [nextcloud]
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+  tasks:
+    - name: Verify web, database, and cron services are active
+      ansible.builtin.command:
+        cmd: systemctl is-active apache2 mariadb cron
+      changed_when: false
+    - name: Verify Nextcloud installation status
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} status --output=json
+      register: nextcloud_status
+      changed_when: false
+    - name: Assert Nextcloud is installed and maintenance mode is disabled
+      ansible.builtin.assert:
+        that:
+          - (nextcloud_status.stdout | from_json).installed | bool
+          - not ((nextcloud_status.stdout | from_json).maintenance | bool)
+    - name: Read Nextcloud background job mode
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} config:app:get core backgroundjobs_mode
+      register: nextcloud_background_mode
+      changed_when: false
+      failed_when: nextcloud_background_mode.stdout | trim != 'cron'
+    - name: Verify Nextcloud Mail and Talk apps are enabled
+      ansible.builtin.shell: |
+        set -o pipefail
+        sudo -u www-data php {{ nextcloud_occ }} app:list --output=json |
+        php -r '$j=json_decode(stream_get_contents(STDIN), true); exit(isset($j["enabled"]["mail"], $j["enabled"]["spreed"]) ? 0 : 1);'
+      args:
+        executable: /bin/bash
+      changed_when: false
+    - name: Verify connectivity to mail services
+      ansible.builtin.wait_for:
+        host: mail01.toss.lan
+        port: "{{ item }}"
+        timeout: 5
+      loop: [25, 587, 993]
+
+- name: Verify mail services
+  hosts: mail_server
+  become: true
+  gather_facts: false
+  tags: [mail]
+  tasks:
+    - name: Verify Postfix, Dovecot, and autoconfig services are active
+      ansible.builtin.command:
+        cmd: systemctl is-active postfix dovecot mail-autoconfig-http
+      changed_when: false
+    - name: Verify mail ports are listening
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ item }}"
+        timeout: 5
+      loop: [25, 587, 993]
+
+- name: Verify Wazuh manager and agent enrollment
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  tags: [wazuh]
+  tasks:
+    - name: Verify Wazuh services are active
+      ansible.builtin.command:
+        cmd: systemctl is-active wazuh-manager wazuh-indexer wazuh-dashboard
+      changed_when: false
+
+    - name: Verify SME custom detections
+      ansible.builtin.command:
+        cmd: /var/ossec/bin/test-sme-detections /var/ossec/etc/sme-detection-fixtures
+      changed_when: false
+    - name: Verify Wazuh component package holds
+      ansible.builtin.shell: |
+        set -eu
+        for package in wazuh-manager wazuh-indexer wazuh-dashboard; do
+          dpkg --get-selections "$package" | grep -Eq "[[:space:]]hold$"
+        done
+      changed_when: false
+
+    - name: Verify Wazuh API loopback authentication
+      ansible.builtin.uri:
+        url: https://127.0.0.1:55000/
+        validate_certs: false
+        status_code: 401
+
+
+    - name: Verify Wazuh snapshot timer is enabled
+      ansible.builtin.command:
+        cmd: systemctl is-enabled wazuh-alert-snapshot.timer
+      changed_when: false
+
+    - name: Verify Wazuh retention policy and successful snapshot
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cert=/etc/wazuh-indexer/certs/admin.pem
+        key=/etc/wazuh-indexer/certs/admin-key.pem
+        ca=/etc/wazuh-indexer/certs/root-ca.pem
+        curl --silent --show-error --fail --cert "$cert" --key "$key" --cacert "$ca" https://127.0.0.1:9200/_plugins/_ism/policies/wazuh-alerts-retention-30d | python3 -c 'import json,sys; p=json.load(sys.stdin)["policy"]; assert any(t.get("conditions",{}).get("min_index_age")=="30d" for s in p["states"] for t in s.get("transitions",[]))'
+        curl --silent --show-error --fail --cert "$cert" --key "$key" --cacert "$ca" https://127.0.0.1:9200/_snapshot/wazuh-alerts/_all | python3 -c 'import json,sys; s=json.load(sys.stdin).get("snapshots",[]); assert s and any(x.get("state")=="SUCCESS" for x in s)'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Read connected Wazuh agents
+      ansible.builtin.command:
+        cmd: /var/ossec/bin/agent_control -lc
+      register: wazuh_agents
+      changed_when: false
+    - name: Verify every managed host has an active Wazuh agent
+      ansible.builtin.assert:
+        that:
+          - wazuh_agents.stdout is regex('(?im)^.*\\b' + item + '\\b.*\\bActive\\b')
+        fail_msg: "Wazuh agent {{ item }} is not active."
+      loop: "{{ groups['all'] | difference(groups['wazuh_server']) }}"
+
+- name: Verify operational timers
+  hosts: primary_dc:secondary_dc:iam_server
+  become: true
+  gather_facts: false
+  tags: [timers]
+  tasks:
+    - name: Verify certificate expiry monitor timer is enabled
+      ansible.builtin.command:
+        cmd: systemctl is-enabled certificate-expiry-monitor.timer
+      changed_when: false
+    - name: Verify Samba backup timer is enabled on the active DC
+      ansible.builtin.command:
+        cmd: systemctl is-enabled samba-domain-backup.timer
+      changed_when: false
+      when: inventory_hostname in groups['active_dc']
+
+- name: Run end-to-end identity verification
+  ansible.builtin.import_playbook: identity-flow-verify.yml
+  tags: [identity]

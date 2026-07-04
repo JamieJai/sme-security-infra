@@ -1,0 +1,129 @@
+---
+- name: Harden Wazuh platform exposure and package baseline
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+
+  vars:
+    wazuh_version: 4.10.4-1
+    wazuh_trusted_network: 192.168.0.0/24
+    wazuh_api_config: /var/ossec/api/configuration/api.yaml
+    wazuh_dashboard_config: /etc/wazuh-dashboard/opensearch_dashboards.yml
+
+  tasks:
+    - name: Read installed Wazuh package versions
+      ansible.builtin.command:
+        cmd: dpkg-query -W -f=${Version} {{ item }}
+      loop:
+        - wazuh-manager
+        - wazuh-indexer
+        - wazuh-dashboard
+      register: wazuh_package_versions
+      changed_when: false
+
+    - name: Require the validated Wazuh version
+      ansible.builtin.assert:
+        that:
+          - item.stdout == wazuh_version
+        fail_msg: "{{ item.item }} is {{ item.stdout }}, expected {{ wazuh_version }}."
+      loop: "{{ wazuh_package_versions.results }}"
+
+    - name: Hold Wazuh components
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - wazuh-manager
+        - wazuh-indexer
+        - wazuh-dashboard
+
+    - name: Bind Wazuh API to loopback
+      ansible.builtin.lineinfile:
+        path: "{{ wazuh_api_config }}"
+        regexp: '^#? host:'
+        line: "host: ['127.0.0.1']"
+        backup: true
+      notify: Restart Wazuh manager
+
+    - name: Install Wazuh API access limits
+      ansible.builtin.blockinfile:
+        path: "{{ wazuh_api_config }}"
+        marker: '# {mark} ANSIBLE MANAGED API HARDENING'
+        block: |
+          access:
+            max_login_attempts: 10
+            block_time: 300
+            max_request_per_minute: 300
+          drop_privileges: yes
+          max_upload_size: 10485760
+        backup: true
+      notify: Restart Wazuh manager
+
+    - name: Remove unrestricted Wazuh firewall rules
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+        delete: true
+      loop: ["1514", "1515", "443", "55000", "9200"]
+      failed_when: false
+
+    - name: Allow agent and dashboard traffic from the trusted network
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+        from_ip: "{{ wazuh_trusted_network }}"
+      loop: ["1514", "1515", "443"]
+
+    - name: Validate Wazuh API YAML
+      ansible.builtin.command:
+        cmd: /var/ossec/framework/python/bin/python3 -c "import pathlib,yaml; yaml.safe_load(pathlib.Path('/var/ossec/api/configuration/api.yaml').read_text())"
+      changed_when: false
+
+    - name: Flush Wazuh restart before verification
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify Wazuh services are active
+      ansible.builtin.command:
+        cmd: systemctl is-active wazuh-manager wazuh-indexer wazuh-dashboard
+      changed_when: false
+
+    - name: Verify Wazuh API only listens on loopback
+      ansible.builtin.shell: |
+        listeners=$(ss -lntH '( sport = :55000 )' | awk '{print $4}')
+        test -n "$listeners"
+        bad=$(printf '%s\n' "$listeners" | grep -Ev '^127\.0\.0\.1:55000$|^\[::ffff:127\.0\.0\.1\]:55000$' || true)
+        test -z "$bad"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify local HTTPS endpoints require authentication
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        validate_certs: false
+        status_code: "{{ item.status }}"
+      loop:
+        - {url: "https://127.0.0.1:443/", status: 200}
+        - {url: "https://127.0.0.1:9200/", status: 401}
+        - {url: "https://127.0.0.1:55000/", status: 401}
+
+    - name: Verify dashboard TLS is enabled
+      ansible.builtin.command:
+        cmd: "grep -Fx 'server.ssl.enabled: true' {{ wazuh_dashboard_config }}"
+      changed_when: false
+
+    - name: Verify private key permissions
+      ansible.builtin.shell: |
+        set -eu
+        test "$(stat -c %a /etc/wazuh-dashboard/certs/wazuh-dashboard-key.pem)" = 400
+        test "$(stat -c %a /etc/wazuh-indexer/certs/wazuh-indexer-key.pem)" = 400
+        test "$(stat -c %a /var/ossec/api/configuration/ssl/server.key)" = 400
+      changed_when: false
+
+  handlers:
+    - name: Restart Wazuh manager
+      ansible.builtin.systemd:
+        name: wazuh-manager
+        state: restarted
