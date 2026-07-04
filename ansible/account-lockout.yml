@@ -1,7 +1,0 @@
----
-- name: Apply Account Lockout Policy
-  hosts: active_dc
-  become: yes
-
-  roles:
-    - account-lockout

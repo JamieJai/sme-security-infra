@@ -1,7 +1,0 @@
----
-- name: Apply Storage Policy
-  hosts: storage_server
-  become: yes
-
-  roles:
-    - storage-policy

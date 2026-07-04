@@ -1,0 +1,44 @@
+---
+- name: Disable unused Kerberos NFS server credentials daemon
+  hosts: storage_server
+  become: true
+
+  vars:
+    storage_use_kerberized_nfs: false
+    storage_rpc_gssd_units:
+      - rpc-svcgssd.service
+
+  tasks:
+    - name: Explain Kerberos NFS mode requirement
+      ansible.builtin.assert:
+        that:
+          - not storage_use_kerberized_nfs | bool
+        fail_msg: >-
+          storage_use_kerberized_nfs=true requires an nfs/<host>@REALM keytab.
+          Do not disable rpc-svcgssd when Kerberized NFS is intended.
+
+    - name: Stop, disable, and mask rpc-svcgssd when Kerberized NFS is not used
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop: "{{ storage_rpc_gssd_units }}"
+
+    - name: Reset failed state for rpc-svcgssd
+      ansible.builtin.command:
+        cmd: systemctl reset-failed {{ item }}
+      loop: "{{ storage_rpc_gssd_units }}"
+      changed_when: false
+
+    - name: Verify NFS server remains active
+      ansible.builtin.command:
+        cmd: systemctl is-active nfs-server
+      changed_when: false
+
+    - name: Verify no rpc-svcgssd failed state remains
+      ansible.builtin.command:
+        cmd: systemctl --failed --no-legend --no-pager
+      register: storage_failed_units
+      changed_when: false
+      failed_when: storage_failed_units.stdout is search('rpc-svcgssd')

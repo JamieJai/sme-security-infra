@@ -1,4 +1,4 @@
 ---
-- import_playbook: account-lockout.yml
-- import_playbook: storage-policy.yml
-- import_playbook: password-policy.yml
+- import_playbook: playbooks/account-lockout.yml
+- import_playbook: playbooks/storage-policy.yml
+- import_playbook: playbooks/password-policy.yml

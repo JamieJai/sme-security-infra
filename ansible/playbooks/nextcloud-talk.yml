@@ -1,0 +1,57 @@
+---
+- name: Configure Nextcloud Talk for internal messaging
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_talk_app_id: spreed
+    nextcloud_talk_turn_server: ""
+    nextcloud_talk_turn_secret: ""
+    nextcloud_talk_turn_protocol: udp
+
+  tasks:
+    - name: Verify Nextcloud is installed
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} status
+      changed_when: false
+
+    - name: Install Nextcloud Talk app when missing
+      ansible.builtin.shell: |
+        set -e
+        if sudo -u www-data php {{ nextcloud_occ }} app:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); exit(isset($j["enabled"]["{{ nextcloud_talk_app_id }}"]) || isset($j["disabled"]["{{ nextcloud_talk_app_id }}"]) ? 0 : 1);'; then
+          echo present
+        else
+          sudo -u www-data php {{ nextcloud_occ }} app:install {{ nextcloud_talk_app_id }}
+          echo installed
+        fi
+      args:
+        executable: /bin/bash
+      register: nextcloud_talk_install
+      changed_when: "'installed' in nextcloud_talk_install.stdout"
+
+    - name: Enable Nextcloud Talk app
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} app:enable {{ nextcloud_talk_app_id }}
+      register: nextcloud_talk_enable
+      changed_when: "'enabled' in nextcloud_talk_enable.stdout"
+      failed_when: >-
+        nextcloud_talk_enable.rc != 0 and
+        'already enabled' not in nextcloud_talk_enable.stdout and
+        'already enabled' not in nextcloud_talk_enable.stderr
+
+    - name: Configure Talk TURN server when provided
+      ansible.builtin.command:
+        cmd: >-
+          sudo -u www-data php {{ nextcloud_occ }} config:app:set {{ nextcloud_talk_app_id }} turn_servers
+          --value='[{"server":"{{ nextcloud_talk_turn_server }}","secret":"{{ nextcloud_talk_turn_secret }}","protocol":"{{ nextcloud_talk_turn_protocol }}"}]'
+      when:
+        - nextcloud_talk_turn_server | length > 0
+        - nextcloud_talk_turn_secret | length > 0
+
+    - name: Verify Nextcloud Talk app is enabled
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} app:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); exit(isset($j["enabled"]["{{ nextcloud_talk_app_id }}"]) ? 0 : 1);'
+      args:
+        executable: /bin/bash
+      changed_when: false

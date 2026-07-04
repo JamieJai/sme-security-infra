@@ -8,7 +8,7 @@
 |---|---|---|
 | Directory | `dc02`, `dc01` | Samba AD, DNS, Kerberos, LDAP, 장애 대응 |
 | IAM | `keycloak` | AD LDAP federation, SSO/OIDC, 앱 인증 허브 |
-| Collaboration | `nextcloud` | 사내 클라우드, 사용자 포털, 공유폴더 UI |
+| Collaboration | `nextcloud` | 사내 클라우드, 사용자 포털, 공유폴더 UI, Nextcloud Talk 메신저 |
 | Storage | `storage01` | 부서별 공유 스토리지, Nextcloud external storage backend |
 | Mail | `mail01` | Postfix/Dovecot, AD LDAP 메일 인증 |
 | SIEM | `wazuh` | 로그/보안 이벤트 수집, 취약점/무결성 감시 |
@@ -42,7 +42,7 @@
 6. Nextcloud
    - Apache/PHP/MariaDB를 구성한다.
    - Keycloak OIDC 로그인, AD 그룹 provisioning, external storage mount를 적용한다.
-   - background job은 cron으로 실행한다.
+   - background job은 cron으로 실행한다. 사내 메신저는 Nextcloud Talk를 기본안으로 사용한다.
 
 7. Mail
    - Postfix/Dovecot을 구성한다.
