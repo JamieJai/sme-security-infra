@@ -201,3 +201,22 @@ allowlist field만 저장하고 full_log, password, token, cookie, authorization
 저장하지 않는다. 현재 enrichment는 5분 correlation과 severity를 계산하는
 `deterministic-v1`이며 notification과 automated_action은 항상 false다. 외부 LLM,
 network access, Wazuh write API, SSH/shell 권한은 없다.
+
+## Shadow metrics report
+
+`wazuh-ai-shadow`는 `/var/lib/wazuh-ai-shadow/metrics.json`에 운영 지표를 생성한다.
+report는 pending/enriched event count, duplicate rate, invalid JSON count, trim/backpressure
+indicator, redaction leakage count, p50/p95 enrichment latency를 포함한다. 기존 DB에서
+migration된 과거 event는 `enriched_at` 값이 없어 latency가 `null`일 수 있으며, 새로
+enrich되는 event부터 latency가 계산된다.
+
+생성 명령:
+
+    python3 /usr/local/lib/wazuh-ai-shadow/wazuh_ai_shadow.py \
+      --database /var/lib/wazuh-ai-shadow/spool.db \
+      --report \
+      --report-output /var/lib/wazuh-ai-shadow/metrics.json
+
+운영 활성화 기준은 `redaction_leak_count=0`, loss indicators 0, pending backlog 안정,
+p95 latency 허용 범위 충족이다. notification, external LLM, automated action은 별도 승인
+전까지 비활성 상태로 유지한다.

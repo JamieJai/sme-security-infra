@@ -32,4 +32,19 @@ class ShadowTests(unittest.TestCase):
         shadow.enrich_once(self.db); shadow.trim_spool(self.db,1)
         self.assertEqual(self.db.execute("select count(*) from events").fetchone()[0],1)
 
+    def test_metrics_report(self):
+        self.write([self.event(), self.event(), {"not": "wazuh"}])
+        with self.source.open("a") as f:
+            f.write("{bad json\n")
+        self.assertEqual(shadow.collect_once(self.db,self.source,100,False),3)
+        self.assertEqual(shadow.enrich_once(self.db),3)
+        report = shadow.build_report(self.db)
+        self.assertEqual(report["events_enriched"],3)
+        self.assertEqual(report["events_pending"],0)
+        self.assertEqual(report["seen_total"],4)
+        self.assertEqual(report["invalid_json_total"],1)
+        self.assertEqual(report["redaction_leak_count"],0)
+        self.assertIsNotNone(report["latency_seconds_p95"])
+        self.assertIn("event_loss_indicators", report)
+
 if __name__ == "__main__": unittest.main()

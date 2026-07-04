@@ -70,7 +70,16 @@
       args:
         executable: /bin/bash
       changed_when: false
-    - name: Verify shadow-only safety properties
+    - name: Generate shadow metrics report
+      ansible.builtin.command:
+        cmd: >-
+          python3 /usr/local/lib/wazuh-ai-shadow/wazuh_ai_shadow.py
+          --database /var/lib/wazuh-ai-shadow/spool.db
+          --report
+          --report-output /var/lib/wazuh-ai-shadow/metrics.json
+      changed_when: false
+
+    - name: Verify shadow-only safety properties and metrics
       ansible.builtin.shell: |
         set -euo pipefail
         systemctl is-active --quiet wazuh-ai-shadow.service
@@ -84,6 +93,11 @@
             assert 'password' not in payload.lower() and 'authorization' not in payload.lower()
             result=json.loads(enrichment)
             assert result['notification'] is False and result['automated_action'] is False
+        report=json.load(open('/var/lib/wazuh-ai-shadow/metrics.json'))
+        assert {'events_total','events_pending','events_enriched','duplicate_rate','redaction_leak_count','latency_seconds_p95','event_loss_indicators'} <= set(report)
+        assert report['redaction_leak_count'] == 0
+        assert report['duplicate_rate'] >= 0
+        assert report['event_loss_indicators']['invalid_json_total'] >= 0
         PY
       args:
         executable: /bin/bash

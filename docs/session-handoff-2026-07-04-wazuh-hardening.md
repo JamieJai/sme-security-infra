@@ -224,12 +224,10 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 
 다음 우선 작업:
 
-1. Terraform의 `windows-test` 정의가 실제 Keycloak과 동일한 `192.168.0.60`을
-   사용하고 있으므로 state와 실제 VM을 대조해 drift를 먼저 해소한다. 확인 전에는
-   전체 `terraform apply`를 실행하지 않는다.
-2. AI shadow의 event loss, duplicate 비율, redaction leakage, 처리 latency를 일정
-   기간 측정하는 metrics/report를 추가한다.
-3. 측정 결과를 검토한 뒤 notification 또는 외부 LLM 활성화를 별도 승인한다.
+1. AI shadow metrics를 며칠간 관찰한 뒤 notification 또는 외부 LLM 활성화 여부를
+   별도 승인한다. 자동 대응은 계속 비활성 상태로 유지한다.
+2. Terraform plan/apply가 필요할 때는 유효한 Proxmox API token을 먼저 주입하고,
+   `terraform plan` 결과를 검토한 뒤 실행한다.
 
 다음 세션 시작 프롬프트:
 
@@ -237,3 +235,24 @@ remote: git@github.com:JamieJai/sme-security-infra.git
     '최종 인계 기준' 섹션이야. Wazuh restore/TLS/RBAC/AI shadow까지 완료됐고
     verify-all도 전부 통과했어. 먼저 Terraform state와 windows-test/Keycloak
     192.168.0.60 드리프트를 안전하게 조사하고, apply 전에 변경 계획을 보고해줘.
+
+## 후속 완료 - 2026-07-04 Terraform drift와 AI shadow metrics
+
+### Terraform windows-test/Keycloak drift
+
+- 실제 `192.168.0.60` 호스트는 `keycloak`이며 `keycloak` service가 active임을 확인했다.
+- 로컬 `terraform/terraform.tfvars`의 `windows-test` VM 정의를 `keycloak`으로 정정했다.
+- Terraform state 주소를 `module.vm["windows-test"]`에서 `module.vm["keycloak"]`로 이동했다.
+- `terraform state list` 기준 `windows-test`는 제거되고 `module.vm["keycloak"]`가 존재한다.
+- `terraform apply`는 실행하지 않았다.
+- `terraform plan -refresh=false -input=false`는 Proxmox provider token이 placeholder라 `401 invalid token value`로 실패했다. 유효한 token 주입 후 plan을 재확인해야 한다.
+- Ansible common role의 core hosts mapping도 `192.168.0.60 keycloak.toss.lan keycloak`으로 수정했다.
+
+### AI shadow metrics/report
+
+- `wazuh_ai_shadow.py`에 SQLite metric counters와 JSON report 출력을 추가했다.
+- report 필드: pending/enriched/total event count, seen/inserted/duplicate/invalid JSON count, duplicate rate, trim/backpressure indicators, redaction leakage count, p50/p95 enrichment latency.
+- 기존 DB migration으로 `events.enriched_at` column을 추가한다. 기존 enriched event는 latency가 `null`일 수 있고 새 event부터 latency가 계산된다.
+- `/var/lib/wazuh-ai-shadow/metrics.json` 생성과 safety 검증을 `wazuh-ai-shadow.yml`에 포함했다.
+- 로컬 unit test 3개 통과, target unit test 통과, Wazuh 배포 성공.
+- 배포 직후 report 기준: `events_total=5200`, `events_pending=0`, `redaction_leak_count=0`, `duplicate_rate=0.0`, loss indicators 0.

@@ -31,7 +31,7 @@
       192.168.0.30 wazuh.toss.lan wazuh
       192.168.0.40 automation01.toss.lan automation01
       192.168.0.50 nextcloud.toss.lan nextcloud01
-      192.168.0.60 windows-test.toss.lan windows-test
+      192.168.0.60 keycloak.toss.lan keycloak
       192.168.0.70 storage01.toss.lan storage01
       192.168.0.80 mail01.toss.lan mail01
     create: yes
