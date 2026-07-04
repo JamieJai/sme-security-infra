@@ -110,6 +110,7 @@ ansible-playbook playbooks/nextcloud-cron.yml
 ansible-playbook playbooks/nextcloud-oidc-sso.yml --vault-password-file .vault_pass
 ansible-playbook playbooks/nextcloud-oidc-groups.yml
 ansible-playbook playbooks/nextcloud-integrations.yml
+ansible-playbook playbooks/nextcloud-mail.yml
 ansible-playbook playbooks/nextcloud-ad-addressbook.yml
 ansible-playbook playbooks/nextcloud-ad-addressbook-schedule.yml
 ansible-playbook playbooks/nextcloud-talk.yml
@@ -137,7 +138,7 @@ ansible-playbook playbooks/mail-autoconfig.yml
 ansible mail_server -b -m command -a 'systemctl is-active postfix dovecot'
 ```
 
-Nextcloud는 `mail01`을 SMTP/IMAP backend로 사용한다. 사용자는 Nextcloud Mail 앱 또는 IMAP client로 접근한다.
+Nextcloud는 `mail01`을 SMTP/IMAP backend로 사용한다. `playbooks/nextcloud-mail.yml`은 Nextcloud Mail 앱을 활성화하고, Nextcloud 서버에서 `mail01`의 SMTP/IMAP 포트 접근을 검증한다. 사용자별 Mail 앱 계정 등록은 사용자 비밀번호가 필요하므로 자동 생성하지 않고, mail autoconfig와 AD mail 속성을 기준으로 사용자가 연결한다.
 
 ## 8. Wazuh SIEM 구성
 

@@ -1,0 +1,117 @@
+---
+- name: Configure Nextcloud Mail application and notification SMTP
+  hosts: nextcloud_server
+  become: true
+
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    nextcloud_mail_app_id: mail
+    nextcloud_admin_user: admin
+    nextcloud_admin_email: sysadmin@toss.lan
+    nextcloud_system_mail_settings:
+      mail_smtpmode: smtp
+      mail_smtphost: mail01.toss.lan
+      mail_smtpport: "25"
+      mail_smtpsecure: ""
+      mail_smtpauth: "0"
+      mail_from_address: nextcloud
+      mail_domain: toss.lan
+    nextcloud_mail_tcp_checks:
+      - host: mail01.toss.lan
+        port: 25
+      - host: mail01.toss.lan
+        port: 587
+      - host: mail01.toss.lan
+        port: 993
+
+  tasks:
+    - name: Verify Nextcloud is installed
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} status
+      changed_when: false
+
+    - name: Install Nextcloud Mail app when missing
+      ansible.builtin.shell: |
+        set -e
+        if sudo -u www-data php {{ nextcloud_occ }} app:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); exit(isset($j["enabled"]["{{ nextcloud_mail_app_id }}"]) || isset($j["disabled"]["{{ nextcloud_mail_app_id }}"]) ? 0 : 1);'; then
+          echo present
+        else
+          sudo -u www-data php {{ nextcloud_occ }} app:install {{ nextcloud_mail_app_id }}
+          echo installed
+        fi
+      args:
+        executable: /bin/bash
+      register: nextcloud_mail_install
+      changed_when: "'installed' in nextcloud_mail_install.stdout"
+
+    - name: Enable Nextcloud Mail app
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} app:enable {{ nextcloud_mail_app_id }}
+      register: nextcloud_mail_enable
+      changed_when: >-
+        'enabled' in nextcloud_mail_enable.stdout and
+        'already enabled' not in nextcloud_mail_enable.stdout
+      failed_when: >-
+        nextcloud_mail_enable.rc != 0 and
+        'already enabled' not in nextcloud_mail_enable.stdout and
+        'already enabled' not in nextcloud_mail_enable.stderr
+
+    - name: Configure Nextcloud system mail settings idempotently
+      ansible.builtin.shell: |
+        set -e
+        key="{{ item.key }}"
+        desired="{{ item.value }}"
+        current="$(sudo -u www-data php {{ nextcloud_occ }} config:system:get "$key" 2>/dev/null || true)"
+        if [ "$current" != "$desired" ]; then
+          sudo -u www-data php {{ nextcloud_occ }} config:system:set "$key" --value="$desired" >/dev/null
+          echo changed
+        fi
+      args:
+        executable: /bin/bash
+      loop: "{{ nextcloud_system_mail_settings | dict2items }}"
+      register: nextcloud_system_mail_config
+      changed_when: "'changed' in nextcloud_system_mail_config.stdout"
+
+    - name: Configure Nextcloud admin email
+      ansible.builtin.command:
+        cmd: sudo -u www-data php {{ nextcloud_occ }} user:setting {{ nextcloud_admin_user }} settings email {{ nextcloud_admin_email }}
+      changed_when: false
+
+    - name: Verify TCP connectivity from Nextcloud to mail services
+      ansible.builtin.command:
+        cmd: nc -zvw3 {{ item.host }} {{ item.port }}
+      loop: "{{ nextcloud_mail_tcp_checks }}"
+      changed_when: false
+
+    - name: Verify Nextcloud Mail app is enabled
+      ansible.builtin.shell: |
+        sudo -u www-data php {{ nextcloud_occ }} app:list --output=json | php -r '$j=json_decode(stream_get_contents(STDIN), true); exit(isset($j["enabled"]["{{ nextcloud_mail_app_id }}"]) ? 0 : 1);'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+- name: Allow Nextcloud to access internal mail services
+  hosts: mail_server
+  become: true
+
+  vars:
+    nextcloud_host_ip: 192.168.0.50
+    nextcloud_mail_access_ports:
+      - 25
+      - 143
+      - 587
+      - 993
+
+  tasks:
+    - name: Allow Nextcloud mail access through UFW
+      community.general.ufw:
+        rule: allow
+        proto: tcp
+        from_ip: "{{ nextcloud_host_ip }}"
+        port: "{{ item }}"
+      loop: "{{ nextcloud_mail_access_ports }}"
+
+    - name: Verify mail services are active
+      ansible.builtin.command:
+        cmd: systemctl is-active postfix dovecot
+      changed_when: false
