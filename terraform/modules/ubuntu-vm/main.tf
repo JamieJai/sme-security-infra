@@ -3,12 +3,12 @@ resource "proxmox_vm_qemu" "ubuntu_vm" {
   target_node = var.target_node
   vmid        = var.vm_id
 
-  clone       = var.template_name
-  full_clone  = true
+  clone      = var.template_name
+  full_clone = true
 
-  bios     = "seabios"
-  machine  = "q35"
-  scsihw   = "virtio-scsi-pci"
+  bios    = "seabios"
+  machine = "q35"
+  scsihw  = "virtio-scsi-pci"
 
   # CPU
   cpu {
@@ -22,7 +22,7 @@ resource "proxmox_vm_qemu" "ubuntu_vm" {
   agent   = 1
 
   bootdisk = "scsi0"
-  boot = "order=scsi0;ide2"
+  boot     = "order=scsi0;ide2"
 
   # ==================== Disks ====================
   disks {
@@ -58,5 +58,5 @@ resource "proxmox_vm_qemu" "ubuntu_vm" {
   cipassword = var.ci_password
   sshkeys    = var.ssh_public_key
 
-  tags= join(",", var.tags)
+  tags = join(",", var.tags)
 }
