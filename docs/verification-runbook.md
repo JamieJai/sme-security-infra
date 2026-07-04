@@ -54,3 +54,13 @@
       | tee ../artifacts/verification/verify-all-$(date -u +%Y%m%dT%H%M%SZ).log
 
 artifacts 디렉터리는 운영 로그이므로 secret 출력 여부를 검토한 뒤 보관 정책에 따라 관리한다.
+
+## AD DNS core records
+
+Core hostnames must resolve from Samba AD DNS, not only from `/etc/hosts`.
+Manage records with:
+
+    cd /home/sysadmin/homelab-infra/ansible
+    ansible-playbook -i inventory/hosts playbooks/ad-dns-records.yml
+
+`verify-all.yml` checks every `ad_dns_records` entry through the active DC.

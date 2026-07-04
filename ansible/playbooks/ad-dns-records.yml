@@ -1,0 +1,42 @@
+---
+- name: Manage core Samba AD DNS A records
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../vars/ad_dns.yml
+  tasks:
+    - name: Ensure core A records exist with expected addresses
+      ansible.builtin.shell: |
+        set -euo pipefail
+        record_name={{ item.name | quote }}
+        record_ip={{ item.ip | quote }}
+        zone={{ ad_dns_zone | quote }}
+        server=127.0.0.1
+
+        query=$(samba-tool dns query "$server" "$zone" "$record_name" A -P 2>/dev/null || true)
+        if printf '%s\n' "$query" | grep -Eq "^[[:space:]]*A: ${record_ip//./\.}[[:space:]]"; then
+          echo "OK ${record_name}.${zone} ${record_ip}"
+          exit 0
+        fi
+
+        printf '%s\n' "$query" | awk '/^[[:space:]]*A: / {print $2}' | while read -r old_ip; do
+          [ -n "$old_ip" ] || continue
+          samba-tool dns delete "$server" "$zone" "$record_name" A "$old_ip" -P >/dev/null
+        done
+
+        samba-tool dns add "$server" "$zone" "$record_name" A "$record_ip" -P >/dev/null
+        echo "CHANGED ${record_name}.${zone} ${record_ip}"
+      args:
+        executable: /bin/bash
+      loop: "{{ ad_dns_records }}"
+      register: ad_dns_record_updates
+      changed_when: "'CHANGED' in ad_dns_record_updates.stdout"
+
+    - name: Verify core A records resolve through local Samba DNS
+      ansible.builtin.command:
+        cmd: "host {{ item.name }}.{{ ad_dns_zone }} 127.0.0.1"
+      loop: "{{ ad_dns_records }}"
+      register: ad_dns_record_queries
+      changed_when: false
+      failed_when: item.ip not in ad_dns_record_queries.stdout

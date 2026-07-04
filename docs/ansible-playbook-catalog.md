@@ -8,6 +8,7 @@
 |---|---|---|
 | Common | `playbooks/common.yml` | 공통 OS/hosts/DNS 기준 |
 | AD | `playbooks/ad-dc-chrony.yml` | DC 시간 동기화 정책 |
+| AD | `playbooks/ad-dns-records.yml` | Core `toss.lan` A 레코드를 Samba AD DNS에 보정 |
 | AD | `playbooks/ad-dc-disable-sssd.yml` | DC에서 SSSD 비활성화 |
 | AD | `playbooks/ad-dc-firewall.yml` | DC 방화벽 |
 | AD | `playbooks/account-lockout.yml` | 계정 잠금 정책 |

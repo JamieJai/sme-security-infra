@@ -78,6 +78,22 @@
         fail_msg: Samba did not report all five FSMO roles.
       run_once: true
 
+- name: Verify Samba AD DNS core records
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  tags: [ad, dns]
+  vars_files:
+    - ../vars/ad_dns.yml
+  tasks:
+    - name: Verify core A records resolve through Samba DNS
+      ansible.builtin.command:
+        cmd: "host {{ item.name }}.{{ ad_dns_zone }} 127.0.0.1"
+      loop: "{{ ad_dns_records }}"
+      register: ad_dns_record_verify
+      changed_when: false
+      failed_when: item.ip not in ad_dns_record_verify.stdout
+
 - name: Verify storage services
   hosts: storage_server
   become: true
