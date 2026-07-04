@@ -66,7 +66,7 @@
     - name: Ensure Samba AD LDAP federation exists
       ansible.builtin.assert:
         that: [keycloak_ldap_provider_id.stdout | length > 0]
-        fail_msg: "Keycloak LDAP federation '{{ keycloak_ldap_provider_name }}' was not found in realm '{{ keycloak_realm }}'. Run keycloak-sso-setup.yml first."
+        fail_msg: "Keycloak LDAP federation '{{ keycloak_ldap_provider_name }}' was not found in realm '{{ keycloak_realm }}'. Run playbooks/nextcloud-oidc-sso.yml and playbooks/keycloak-ldap-ha.yml first."
       tags: [keycloak, groups]
 
     - name: Find existing LDAP group mapper

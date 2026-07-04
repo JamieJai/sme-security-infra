@@ -4,6 +4,8 @@
 
 ## 0. 기본 원칙
 
+Playbook 분류와 위험도는 `docs/ansible-playbook-catalog.md`를 함께 확인한다.
+
 - Terraform은 VM과 인프라 자원을 만든다.
 - Ansible은 OS, 인증, 서비스, 보안 정책을 구성한다.
 - 운영 기준 playbook은 `ansible/playbooks/` 아래에 둔다.
@@ -88,9 +90,9 @@ ansible storage_server -b -m command -a 'systemctl --failed --no-legend --no-pag
 ## 5. Keycloak IAM 구성
 
 ```bash
-ansible-playbook keycloak-sso-setup.yml --vault-password-file .vault_pass
 ansible-playbook playbooks/keycloak-ldap-ha.yml --vault-password-file .vault_pass
 ansible-playbook playbooks/keycloak-ldap-ldaps.yml --vault-password-file .vault_pass
+# Nextcloud OIDC client/provider is configured in the Nextcloud section with playbooks/nextcloud-oidc-sso.yml
 ```
 
 목표 흐름:
