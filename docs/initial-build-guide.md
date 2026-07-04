@@ -144,7 +144,8 @@ Nextcloud는 `mail01`을 SMTP/IMAP backend로 사용한다. `playbooks/nextcloud
 
 ```bash
 ansible-playbook playbooks/wazuh-server.yml
-ansible-playbook wazuh-agent-deploy.yml
+ansible-playbook playbooks/wazuh-agent-deploy.yml
+ansible-playbook playbooks/wazuh-agent-logs.yml
 ```
 
 목표 수집 대상:

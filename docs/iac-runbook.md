@@ -51,7 +51,7 @@
 
 8. Wazuh
    - manager/indexer/dashboard를 구성한다.
-   - 모든 서버에 agent를 배포한다.
+   - 모든 서버에 agent를 배포하고 역할별 로그 수집을 적용한다.
    - AD, Keycloak, Nextcloud, Mail, SSH/sudo/auth 로그를 수집한다.
 
 9. Verification

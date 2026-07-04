@@ -1,0 +1,111 @@
+---
+- name: Configure role-based Wazuh agent log collection
+  hosts: all:!wazuh_server
+  become: true
+
+  vars:
+    wazuh_role_log_profiles:
+      primary_dc:
+        - format: syslog
+          location: /var/log/samba/log.samba
+        - format: syslog
+          location: /var/log/samba/log.smbd
+        - format: syslog
+          location: /var/log/samba/log.winbindd
+      secondary_dc:
+        - format: syslog
+          location: /var/log/samba/log.samba
+        - format: syslog
+          location: /var/log/samba/log.smbd
+        - format: syslog
+          location: /var/log/samba/log.winbindd
+      storage_server:
+        - format: syslog
+          location: /var/log/samba/log.smbd
+        - format: syslog
+          location: /var/log/samba/log.winbindd
+      nextcloud_server:
+        - format: json
+          location: /var/www/nextcloud/data/nextcloud.log
+        - format: apache
+          location: /var/log/apache2/nextcloud-ssl-access.log
+        - format: apache
+          location: /var/log/apache2/nextcloud-ssl-error.log
+        - format: apache
+          location: /var/log/apache2/nextcloud_access.log
+        - format: apache
+          location: /var/log/apache2/nextcloud_error.log
+      mail_server:
+        - format: syslog
+          location: /var/log/mail.log
+        - format: syslog
+          location: /var/log/mail.err
+        - format: syslog
+          location: /var/log/auth.log
+        - format: syslog
+          location: /var/log/syslog
+      iam_server: []
+
+  tasks:
+    - name: Verify Wazuh agent configuration exists
+      ansible.builtin.stat:
+        path: /var/ossec/etc/ossec.conf
+      register: wazuh_agent_conf
+
+    - name: Require Wazuh agent before configuring log collection
+      ansible.builtin.assert:
+        that:
+          - wazuh_agent_conf.stat.exists
+        fail_msg: Wazuh agent is not installed on this host. Run playbooks/wazuh-agent-deploy.yml first.
+
+    - name: Build Wazuh log collection list for this host
+      ansible.builtin.set_fact:
+        wazuh_agent_logs: >-
+          {{
+            (wazuh_role_log_profiles.primary_dc if inventory_hostname in groups.get('primary_dc', []) else [])
+            + (wazuh_role_log_profiles.secondary_dc if inventory_hostname in groups.get('secondary_dc', []) else [])
+            + (wazuh_role_log_profiles.storage_server if inventory_hostname in groups.get('storage_server', []) else [])
+            + (wazuh_role_log_profiles.nextcloud_server if inventory_hostname in groups.get('nextcloud_server', []) else [])
+            + (wazuh_role_log_profiles.mail_server if inventory_hostname in groups.get('mail_server', []) else [])
+            + (wazuh_role_log_profiles.iam_server if inventory_hostname in groups.get('iam_server', []) else [])
+          }}
+
+    - name: Check whether configured log files exist
+      ansible.builtin.stat:
+        path: "{{ item.location }}"
+      loop: "{{ wazuh_agent_logs }}"
+      register: wazuh_agent_log_stats
+
+    - name: Keep only existing role log files
+      ansible.builtin.set_fact:
+        wazuh_existing_agent_logs: >-
+          {{ wazuh_agent_log_stats.results
+             | selectattr('stat.exists')
+             | map(attribute='item')
+             | list }}
+
+    - name: Install role-based Wazuh localfile collection block
+      ansible.builtin.blockinfile:
+        path: /var/ossec/etc/ossec.conf
+        insertbefore: '</ossec_config>'
+        marker: '  <!-- {mark} ANSIBLE MANAGED ROLE LOG COLLECTION -->'
+        block: |
+          {% for log in wazuh_existing_agent_logs %}
+          <localfile>
+            <log_format>{{ log.format }}</log_format>
+            <location>{{ log.location }}</location>
+          </localfile>
+          {% endfor %}
+      notify: Restart Wazuh agent
+
+    - name: Ensure Wazuh agent is enabled and running
+      ansible.builtin.systemd:
+        name: wazuh-agent
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart Wazuh agent
+      ansible.builtin.systemd:
+        name: wazuh-agent
+        state: restarted
