@@ -1,4 +1,4 @@
-# 인증서 만료 감시
+# 인증서 만료 감시 Runbook
 
 `ansible/playbooks/certificate-expiry-monitor.yml`은 dc01, dc02, keycloak에
 일일 인증서 만료 검사를 배포한다.

@@ -1,4 +1,4 @@
-# Terraform Runbook
+# Terraform 운영 Runbook
 
 Terraform은 `sme-security-infra`의 VM 초기 생성과 기본 Proxmox 자원 구성을 담당한다. 서비스 구성은 Ansible이 담당한다.
 

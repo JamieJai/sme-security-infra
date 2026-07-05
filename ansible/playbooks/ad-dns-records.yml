@@ -1,5 +1,5 @@
 ---
-- name: Manage core Samba AD DNS A records
+- name: Manage core Samba AD DNS records
   hosts: active_dc
   become: true
   gather_facts: false
@@ -33,6 +33,78 @@
       register: ad_dns_record_updates
       changed_when: "'CHANGED' in ad_dns_record_updates.stdout"
 
+    - name: Ensure reverse DNS zone exists
+      ansible.builtin.shell: |
+        set -euo pipefail
+        zone={{ ad_dns_reverse_zone | quote }}
+        server=127.0.0.1
+
+        if samba-tool dns zonelist "$server" -P | grep -Fq "${zone}"; then
+          echo "OK ${zone}"
+          exit 0
+        fi
+
+        samba-tool dns zonecreate "$server" "$zone" -P >/dev/null
+        echo "CHANGED ${zone}"
+      args:
+        executable: /bin/bash
+      register: ad_dns_reverse_zone_update
+      changed_when: "'CHANGED' in ad_dns_reverse_zone_update.stdout"
+
+    - name: Ensure PTR records exist with expected names
+      ansible.builtin.shell: |
+        set -euo pipefail
+        zone={{ ad_dns_reverse_zone | quote }}
+        host_fqdn="{{ item.name }}.{{ ad_dns_zone }}"
+        ptr_name="{{ item.ip.split('.')[-1] }}"
+        server=127.0.0.1
+
+        query=$(samba-tool dns query "$server" "$zone" "$ptr_name" PTR -P 2>/dev/null || true)
+        if printf '%s\n' "$query" | grep -Eq "^[[:space:]]*PTR: ${host_fqdn}\.??[[:space:]]"; then
+          echo "OK ${ptr_name}.${zone} ${host_fqdn}"
+          exit 0
+        fi
+
+        printf '%s\n' "$query" | sed -n 's/^[[:space:]]*PTR: //p' | awk '{print $1}' | while read -r old_ptr; do
+          [ -n "$old_ptr" ] || continue
+          samba-tool dns delete "$server" "$zone" "$ptr_name" PTR "$old_ptr" -P >/dev/null || true
+        done
+
+        samba-tool dns add "$server" "$zone" "$ptr_name" PTR "${host_fqdn}" -P >/dev/null
+        echo "CHANGED ${ptr_name}.${zone} ${host_fqdn}"
+      args:
+        executable: /bin/bash
+      loop: "{{ ad_dns_records }}"
+      register: ad_dns_ptr_updates
+      changed_when: "'CHANGED' in ad_dns_ptr_updates.stdout"
+
+    - name: Ensure CNAME records exist with expected targets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        record_name={{ item.name | quote }}
+        record_target="{{ item.target }}.{{ ad_dns_zone }}"
+        zone={{ ad_dns_zone | quote }}
+        server=127.0.0.1
+
+        query=$(samba-tool dns query "$server" "$zone" "$record_name" CNAME -P 2>/dev/null || true)
+        if printf '%s\n' "$query" | grep -Eq "^[[:space:]]*CNAME: ${record_target}\.??[[:space:]]"; then
+          echo "OK ${record_name}.${zone} ${record_target}"
+          exit 0
+        fi
+
+        printf '%s\n' "$query" | sed -n 's/^[[:space:]]*CNAME: //p' | awk '{print $1}' | while read -r old_target; do
+          [ -n "$old_target" ] || continue
+          samba-tool dns delete "$server" "$zone" "$record_name" CNAME "$old_target" -P >/dev/null || true
+        done
+
+        samba-tool dns add "$server" "$zone" "$record_name" CNAME "$record_target" -P >/dev/null
+        echo "CHANGED ${record_name}.${zone} ${record_target}"
+      args:
+        executable: /bin/bash
+      loop: "{{ ad_dns_cname_records | default([]) }}"
+      register: ad_dns_cname_updates
+      changed_when: "'CHANGED' in ad_dns_cname_updates.stdout"
+
     - name: Verify core A records resolve through local Samba DNS
       ansible.builtin.command:
         cmd: "host {{ item.name }}.{{ ad_dns_zone }} 127.0.0.1"
@@ -40,3 +112,19 @@
       register: ad_dns_record_queries
       changed_when: false
       failed_when: item.ip not in ad_dns_record_queries.stdout
+
+    - name: Verify PTR records resolve through local Samba DNS
+      ansible.builtin.command:
+        cmd: "host {{ item.ip }} 127.0.0.1"
+      loop: "{{ ad_dns_records }}"
+      register: ad_dns_ptr_queries
+      changed_when: false
+      failed_when: "(item.name ~ '.' ~ ad_dns_zone) not in ad_dns_ptr_queries.stdout"
+
+    - name: Verify CNAME records resolve through local Samba DNS
+      ansible.builtin.command:
+        cmd: "host -t CNAME {{ item.name }}.{{ ad_dns_zone }} 127.0.0.1"
+      loop: "{{ ad_dns_cname_records | default([]) }}"
+      register: ad_dns_cname_queries
+      changed_when: false
+      failed_when: "(item.target ~ '.' ~ ad_dns_zone) not in ad_dns_cname_queries.stdout"

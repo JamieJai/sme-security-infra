@@ -49,4 +49,4 @@ ansible all -b -m command -a 'systemctl --failed --no-legend --no-pager'
 - 역할별 로그 수집은 `playbooks/wazuh-agent-logs.yml`로 관리한다.
 - Keycloak은 현재 파일 로그가 아니라 systemd journal에 로그를 남기므로 journald 수집을 기준으로 한다.
 - 향후 AI 방어형 분석은 Wazuh alert를 우선 정규화한 뒤 요약/분류/대응 추천 단계로 붙인다.
-Hardening, custom detection, AI pipeline의 상세 설계는 docs/wazuh-hardening-ai-defense.md를 기준으로 한다.
+Hardening, custom detection, AI pipeline의 상세 설계는 docs/services/wazuh-hardening-ai-defense.md를 기준으로 한다.

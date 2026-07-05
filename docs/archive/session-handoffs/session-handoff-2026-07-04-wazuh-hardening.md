@@ -1,6 +1,6 @@
 # Session Handoff - 2026-07-04 Wazuh Hardening
 
-이 문서는 docs/session-handoff-2026-07-04.md 이후 진행한 verification과 Wazuh 작업의 최신 인계 기준이다.
+이 문서는 docs/archive/session-handoffs/session-handoff-2026-07-04.md 이후 진행한 verification과 Wazuh 작업의 최신 인계 기준이다.
 
 기준 repo: /home/sysadmin/homelab-infra
 
@@ -11,7 +11,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 ### 전체 verification
 
 - ansible/playbooks/verify-all.yml
-- docs/verification-runbook.md
+- docs/operations/verification-runbook.md
 - Terraform, 전체 host baseline, AD/FSMO, Keycloak, Nextcloud, Mail, Storage, Wazuh, timer, identity flow 검증
 - 최종 결과: 모든 host failed=0, unreachable=0
 
@@ -31,7 +31,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 - ansible/files/wazuh/decoders/sme_decoders.xml
 - ansible/files/wazuh/rules/sme_rules.xml
 - ansible/files/wazuh/fixtures
-- docs/wazuh-custom-detections.md
+- docs/services/wazuh-custom-detections.md
 
 ### Wazuh platform hardening
 
@@ -49,7 +49,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 - ansible/playbooks/wazuh-platform-hardening.yml
 - ansible/roles/wazuh-server/defaults/main.yml
 - ansible/roles/wazuh-server/tasks/main.yml
-- docs/wazuh-platform-hardening.md
+- docs/services/wazuh-platform-hardening.md
 
 주의:
 
@@ -71,7 +71,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 
 - ansible/playbooks/wazuh-index-lifecycle.yml
 - ansible/files/wazuh/index-lifecycle
-- docs/wazuh-index-lifecycle.md
+- docs/services/wazuh-index-lifecycle.md
 
 보안 결정:
 
@@ -86,7 +86,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 
 ### AI defense 설계
 
-관련 문서: docs/wazuh-hardening-ai-defense.md
+관련 문서: docs/services/wazuh-hardening-ai-defense.md
 
     Wazuh alerts.json
       -> durable offset collector
@@ -161,7 +161,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 
 ## 다음 세션 시작 프롬프트
 
-    최신 handoff는 docs/session-handoff-2026-07-04-wazuh-hardening.md에 있어.
+    최신 handoff는 docs/archive/session-handoffs/session-handoff-2026-07-04-wazuh-hardening.md에 있어.
     전체 verify-all, Wazuh custom detection fixture, platform hardening,
     30일 index retention과 일일 snapshot까지 적용 및 검증된 상태야.
     다음은 snapshot을 storage01로 외부 복제하고 restore test를 만든 뒤,
@@ -231,7 +231,7 @@ remote: git@github.com:JamieJai/sme-security-infra.git
 
 다음 세션 시작 프롬프트:
 
-    최신 기준은 docs/session-handoff-2026-07-04-wazuh-hardening.md의
+    최신 기준은 docs/archive/session-handoffs/session-handoff-2026-07-04-wazuh-hardening.md의
     '최종 인계 기준' 섹션이야. Wazuh restore/TLS/RBAC/AI shadow까지 완료됐고
     verify-all도 전부 통과했어. 먼저 Terraform state와 windows-test/Keycloak
     192.168.0.60 드리프트를 안전하게 조사하고, apply 전에 변경 계획을 보고해줘.

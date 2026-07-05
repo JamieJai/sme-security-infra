@@ -42,11 +42,15 @@
   ansible.builtin.timezone:
     name: "{{ timezone }}"
 
-- name: Update apt packages
+- name: Update apt package cache
   ansible.builtin.apt:
     update_cache: yes
+
+- name: Upgrade apt packages
+  ansible.builtin.apt:
     upgrade: dist
     autoremove: yes
+  when: common_upgrade_packages | default(true) | bool
 
 - name: Install basic tools
   ansible.builtin.apt:

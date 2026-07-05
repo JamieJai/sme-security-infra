@@ -1,0 +1,18 @@
+---
+- import_playbook: playbooks/wazuh-apt-repository.yml
+- import_playbook: playbooks/grafana-apt-repository.yml
+- import_playbook: playbooks/keycloak-ldap-ha.yml
+- import_playbook: playbooks/keycloak-ldap-ldaps.yml
+- import_playbook: playbooks/nextcloud-cron.yml
+- import_playbook: playbooks/nextcloud-oidc-sso.yml
+- import_playbook: playbooks/nextcloud-oidc-groups.yml
+- import_playbook: playbooks/nextcloud-integrations.yml
+- import_playbook: playbooks/nextcloud-mail.yml
+- import_playbook: playbooks/nextcloud-ad-addressbook.yml
+- import_playbook: playbooks/nextcloud-ad-addressbook-schedule.yml
+- import_playbook: playbooks/identity-flow-verify.yml
+- import_playbook: playbooks/nextcloud-talk.yml
+- import_playbook: playbooks/dovecot-conf.yml
+- import_playbook: playbooks/mail-autoconfig.yml
+- import_playbook: playbooks/wazuh-agent-logs.yml
+- import_playbook: playbooks/wazuh-custom-detections.yml

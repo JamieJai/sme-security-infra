@@ -1,10 +1,10 @@
-# SME Security Infra 초기 구축 가이드
+# 초기 구축 가이드
 
 이 문서는 빈 VM 환경에서 `sme-security-infra`를 다시 구성할 때의 기준 실행 순서를 정의한다. 모든 명령은 기본적으로 `/home/sysadmin/homelab-infra/ansible`에서 실행한다.
 
 ## 0. 기본 원칙
 
-Playbook 분류와 위험도는 `docs/ansible-playbook-catalog.md`를 함께 확인한다.
+Playbook 분류와 위험도는 `docs/reference/ansible-playbook-catalog.md`와 `docs/operations/operation-modes.md`를 함께 확인한다.
 
 - Terraform은 VM과 인프라 자원을 만든다.
 - Ansible은 OS, 인증, 서비스, 보안 정책을 구성한다.
@@ -15,7 +15,7 @@ Playbook 분류와 위험도는 `docs/ansible-playbook-catalog.md`를 함께 확
 
 ## 1. Terraform VM 구성
 
-세부 운영 기준은 `docs/terraform-runbook.md`를 확인한다.
+세부 운영 기준은 `docs/reference/terraform-runbook.md`를 확인한다.
 
 ```bash
 cd /home/sysadmin/homelab-infra/terraform
@@ -194,3 +194,7 @@ ansible all -b -m command -a 'timedatectl show -p Timezone -p NTPSynchronized --
 - Nextcloud cron active 및 background mode `cron`
 - Keycloak, Nextcloud, Mail, Wazuh 핵심 서비스 active
 - 의도하지 않은 failed unit 없음
+
+## 자동화 entrypoint
+
+새 환경에서 전체 적용을 시도하기 전 `docs/getting-started/secrets-checklist.md`를 기준으로 secret material을 준비한다. 비파괴 검증은 `./scripts/full-check.sh`, 실제 적용은 `./scripts/full-apply.sh`를 사용한다.

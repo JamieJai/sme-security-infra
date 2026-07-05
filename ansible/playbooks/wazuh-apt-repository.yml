@@ -1,0 +1,62 @@
+---
+- name: Manage Wazuh apt repository keyring
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    wazuh_apt_key_url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+    wazuh_apt_keyring: /usr/share/keyrings/wazuh.gpg
+    wazuh_apt_source: /etc/apt/sources.list.d/wazuh.list
+    wazuh_legacy_apt_source: /etc/apt/sources.list.d/packages_wazuh_com_4_x_apt.list
+  tasks:
+    - name: Install apt repository dependencies
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: false
+
+    - name: Download Wazuh armored signing key
+      ansible.builtin.get_url:
+        url: "{{ wazuh_apt_key_url }}"
+        dest: /tmp/GPG-KEY-WAZUH
+        mode: '0644'
+
+    - name: Install Wazuh signing keyring
+      ansible.builtin.command:
+        cmd: gpg --dearmor --yes --output {{ wazuh_apt_keyring }} /tmp/GPG-KEY-WAZUH
+      changed_when: false
+
+    - name: Set Wazuh keyring permissions
+      ansible.builtin.file:
+        path: "{{ wazuh_apt_keyring }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure Wazuh apt repository with signed-by
+      ansible.builtin.copy:
+        dest: "{{ wazuh_apt_source }}"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          deb [signed-by={{ wazuh_apt_keyring }}] https://packages.wazuh.com/4.x/apt/ stable main
+
+    - name: Remove legacy Wazuh apt repository file
+      ansible.builtin.file:
+        path: "{{ wazuh_legacy_apt_source }}"
+        state: absent
+
+    - name: Refresh apt cache after Wazuh repository migration
+      ansible.builtin.apt:
+        update_cache: true
+      register: wazuh_apt_update
+
+    - name: Verify apt update did not use legacy trusted.gpg for Wazuh
+      ansible.builtin.assert:
+        that:
+          - "'legacy trusted.gpg' not in (wazuh_apt_update.warnings | default([]) | join(' '))"
+        fail_msg: Wazuh apt repository still uses a legacy trusted.gpg key.

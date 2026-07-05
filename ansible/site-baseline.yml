@@ -1,0 +1,15 @@
+---
+- import_playbook: playbooks/common.yml
+  vars:
+    common_upgrade_packages: false
+- import_playbook: playbooks/ad-dc-chrony.yml
+- import_playbook: playbooks/ad-dc-disable-sssd.yml
+- import_playbook: playbooks/ad-dc-firewall.yml
+- import_playbook: playbooks/ad-dns-forwarder.yml
+- import_playbook: playbooks/ad-dns-records.yml
+- import_playbook: playbooks/account-lockout.yml
+- import_playbook: playbooks/password-policy.yml
+- import_playbook: playbooks/storage-policy.yml
+- import_playbook: playbooks/storage-rpc-gssd.yml
+- import_playbook: playbooks/samba-domain-backup.yml
+- import_playbook: playbooks/certificate-expiry-monitor.yml

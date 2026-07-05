@@ -1,4 +1,4 @@
-# Wazuh Hardening and AI Defense Design
+# Wazuh Hardening 및 AI Defense 설계
 
 이 문서는 현재 Wazuh 4.10 기반 수집 환경을 운영 수준으로 강화하고, 경보 요약과 분류를 위한 AI pipeline을 안전하게 연결하는 설계 기준이다.
 

@@ -1,4 +1,6 @@
 ad_dns_zone: toss.lan
+ad_dns_forwarder: 8.8.8.8
+ad_dns_reverse_zone: 0.168.192.in-addr.arpa
 ad_dns_records:
   - { name: dc01, ip: 192.168.0.20 }
   - { name: dc02, ip: 192.168.0.21 }
@@ -8,3 +10,7 @@ ad_dns_records:
   - { name: keycloak, ip: 192.168.0.60 }
   - { name: storage01, ip: 192.168.0.70 }
   - { name: mail01, ip: 192.168.0.80 }
+ad_dns_cname_records:
+  - { name: mail, target: mail01 }
+  - { name: autoconfig, target: mail01 }
+  - { name: keycloak-ldap-ha, target: keycloak }

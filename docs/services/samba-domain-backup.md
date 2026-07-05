@@ -1,4 +1,4 @@
-# Samba domain backup
+# Samba Domain Backup Runbook
 
 `ansible/playbooks/samba-domain-backup.yml`은 `active_dc`에 검증된 Samba AD
 domain backup을 구성한다. 기본 실행 시각은 매일 03:30이며 최대 15분의 임의

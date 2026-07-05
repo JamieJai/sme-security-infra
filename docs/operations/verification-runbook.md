@@ -1,4 +1,4 @@
-# Full Verification Runbook
+# 전체 검증 Runbook
 
 이 문서는 Terraform부터 AD, Keycloak, Nextcloud, Mail, Storage, Wazuh까지 현재 운영 기준을 변경 없이 한 번에 검증하는 절차다.
 

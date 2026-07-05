@@ -1,6 +1,6 @@
-# Ansible Playbook Catalog
+# Ansible Playbook 카탈로그
 
-이 문서는 `ansible/playbooks/`의 playbook을 운영 목적별로 분류한다. 초기 구축 순서는 `docs/initial-build-guide.md`를 기준으로 한다.
+이 문서는 `ansible/playbooks/`의 playbook을 운영 목적별로 분류한다. 초기 구축 순서는 `docs/getting-started/initial-build-guide.md`를 기준으로 한다.
 
 ## 1. 초기 구축/운영 기준 playbook
 
@@ -8,9 +8,10 @@
 |---|---|---|
 | Common | `playbooks/common.yml` | 공통 OS/hosts/DNS 기준 |
 | AD | `playbooks/ad-dc-chrony.yml` | DC 시간 동기화 정책 |
-| AD | `playbooks/ad-dns-records.yml` | Core `toss.lan` A 레코드를 Samba AD DNS에 보정 |
+| AD | `playbooks/ad-dns-records.yml` | Core `toss.lan` A/PTR/CNAME 레코드를 Samba AD DNS에 보정 |
 | AD | `playbooks/ad-dc-disable-sssd.yml` | DC에서 SSSD 비활성화 |
 | AD | `playbooks/ad-dc-firewall.yml` | DC 방화벽 |
+| AD | `playbooks/ad-dns-forwarder.yml` | Samba AD DNS 외부 forwarder 보정 |
 | AD | `playbooks/account-lockout.yml` | 계정 잠금 정책 |
 | AD | `playbooks/password-policy.yml` | 암호 정책 |
 | Storage | `playbooks/storage-policy.yml` | 부서별 공유 스토리지 정책 |
@@ -30,6 +31,7 @@
 | Mail | `playbooks/dovecot-conf.yml` | Dovecot LDAP/TLS 구성 |
 | Mail | `playbooks/mail-autoconfig.yml` | Postfix/Dovecot/TLS/autoconfig/mailbox map |
 | Wazuh | `playbooks/wazuh-server.yml` | Wazuh all-in-one 서버 |
+| Wazuh | `playbooks/wazuh-apt-repository.yml` | Wazuh apt repository signed-by keyring 관리 |
 | Wazuh | `playbooks/wazuh-agent-deploy.yml` | Wazuh agent 배포 |
 | Wazuh | `playbooks/wazuh-agent-logs.yml` | 역할별 로그 수집 |
 | Wazuh | `playbooks/wazuh-custom-detections.yml` | Custom decoder/rule 배포 및 fixture test |
@@ -40,6 +42,7 @@
 | Wazuh | `playbooks/wazuh-dashboard-certificate.yml` | Dashboard SAN 인증서, CA trust, rollback |
 | Wazuh | `playbooks/wazuh-rbac.yml` | SSO RBAC, admin rotation, break-glass |
 | Wazuh | `playbooks/wazuh-ai-shadow.yml` | read-only AI shadow collector 및 spool |
+| Monitoring | `playbooks/grafana-apt-repository.yml` | Grafana apt repository signed-by keyring 관리 |
 | Monitoring | `playbooks/samba-domain-backup.yml` | Active DC 백업 |
 | Monitoring | `playbooks/certificate-expiry-monitor.yml` | 인증서 만료 모니터링 |
 | Verification | `playbooks/verify-all.yml` | 전체 인프라 read-only smoke test |

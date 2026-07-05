@@ -1,0 +1,4 @@
+---
+- import_playbook: playbooks/wazuh-apt-repository.yml
+- import_playbook: playbooks/wazuh-agent-deploy.yml
+- import_playbook: playbooks/wazuh-agent-logs.yml

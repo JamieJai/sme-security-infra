@@ -1,4 +1,4 @@
-# Homelab Infrastructure Architecture
+# Homelab 인프라 아키텍처
 
 ## 1. 목적
 

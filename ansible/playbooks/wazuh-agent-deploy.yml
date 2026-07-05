@@ -16,15 +16,27 @@
         state: present
         update_cache: yes
 
-    - name: Add Wazuh GPG key
-      ansible.builtin.apt_key:
+    - name: Download Wazuh armored signing key
+      ansible.builtin.get_url:
         url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
-        state: present
+        dest: /tmp/GPG-KEY-WAZUH
+        mode: '0644'
+
+    - name: Install Wazuh signing keyring
+      ansible.builtin.command:
+        cmd: gpg --dearmor --yes --output /usr/share/keyrings/wazuh.gpg /tmp/GPG-KEY-WAZUH
+      changed_when: false
 
     - name: Add Wazuh repository
       ansible.builtin.apt_repository:
-        repo: "deb https://packages.wazuh.com/4.x/apt/ stable main"
+        repo: "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main"
+        filename: wazuh
         state: present
+
+    - name: Remove legacy Wazuh repository file
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/packages_wazuh_com_4_x_apt.list
+        state: absent
 
     - name: Install Wazuh Agent (Fixed Version)
       ansible.builtin.apt:

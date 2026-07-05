@@ -2,6 +2,7 @@
 - name: Schedule Nextcloud AD addressbook sync
   hosts: localhost
   connection: local
+  become: false
   gather_facts: false
 
   vars:

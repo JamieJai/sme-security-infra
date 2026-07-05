@@ -1,0 +1,36 @@
+---
+- name: Manage Samba AD DNS forwarder
+  hosts: primary_dc:secondary_dc
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../vars/ad_dns.yml
+  tasks:
+    - name: Configure Samba DNS forwarder
+      ansible.builtin.lineinfile:
+        path: "{{ samba_conf_path | default('/etc/samba/smb.conf') }}"
+        regexp: '^\s*dns forwarder\s*='
+        line: "	dns forwarder = {{ ad_dns_forwarder }}"
+        insertafter: '^\[global\]'
+        backup: true
+      notify: Restart samba ad dc
+
+    - name: Validate Samba configuration
+      ansible.builtin.command:
+        cmd: testparm -s
+      changed_when: false
+
+    - name: Apply Samba DNS forwarder changes before verification
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify external DNS resolution through local Samba DNS
+      ansible.builtin.command:
+        cmd: host archive.ubuntu.com 127.0.0.1
+      register: samba_external_dns
+      changed_when: false
+
+  handlers:
+    - name: Restart samba ad dc
+      ansible.builtin.systemd:
+        name: samba-ad-dc
+        state: restarted

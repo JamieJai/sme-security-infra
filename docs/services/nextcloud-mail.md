@@ -1,4 +1,4 @@
-# Nextcloud Mail Integration
+# Nextcloud Mail 연동 Runbook
 
 Nextcloud는 사내 포털 역할을 맡고, `mail01`은 실제 메일 backend 역할을 맡는다. Nextcloud Mail 앱은 사용자가 웹에서 IMAP/SMTP 계정을 연결해 사용할 수 있게 한다.
 

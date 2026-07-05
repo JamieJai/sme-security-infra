@@ -1,4 +1,4 @@
-# AD DC 장애 시험
+# AD DC 장애 전환 시험 Runbook
 
 ansible/playbooks/ad-dc-failover-test.yml은 비활성 DC의 Samba 서비스를
 일시 중지하고 핵심 서비스가 active DC로 계속 동작하는지 검증한다.

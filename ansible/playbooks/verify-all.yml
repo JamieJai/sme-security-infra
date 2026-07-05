@@ -86,6 +86,11 @@
   vars_files:
     - ../vars/ad_dns.yml
   tasks:
+    - name: Verify external DNS resolution through Samba DNS
+      ansible.builtin.command:
+        cmd: host archive.ubuntu.com 127.0.0.1
+      changed_when: false
+
     - name: Verify core A records resolve through Samba DNS
       ansible.builtin.command:
         cmd: "host {{ item.name }}.{{ ad_dns_zone }} 127.0.0.1"
@@ -93,6 +98,22 @@
       register: ad_dns_record_verify
       changed_when: false
       failed_when: item.ip not in ad_dns_record_verify.stdout
+
+    - name: Verify core PTR records resolve through Samba DNS
+      ansible.builtin.command:
+        cmd: "host {{ item.ip }} 127.0.0.1"
+      loop: "{{ ad_dns_records }}"
+      register: ad_dns_ptr_verify
+      changed_when: false
+      failed_when: "(item.name ~ '.' ~ ad_dns_zone) not in ad_dns_ptr_verify.stdout"
+
+    - name: Verify core CNAME records resolve through Samba DNS
+      ansible.builtin.command:
+        cmd: "host -t CNAME {{ item.name }}.{{ ad_dns_zone }} 127.0.0.1"
+      loop: "{{ ad_dns_cname_records | default([]) }}"
+      register: ad_dns_cname_verify
+      changed_when: false
+      failed_when: "(item.target ~ '.' ~ ad_dns_zone) not in ad_dns_cname_verify.stdout"
 
 - name: Verify storage services
   hosts: storage_server

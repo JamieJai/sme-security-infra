@@ -1,5 +1,5 @@
 # Session Handoff - 2026-07-04
-\n후속 Wazuh hardening 및 verification 작업은 docs/session-handoff-2026-07-04-wazuh-hardening.md에 정리되어 있다.
+\n후속 Wazuh hardening 및 verification 작업은 docs/archive/session-handoffs/session-handoff-2026-07-04-wazuh-hardening.md에 정리되어 있다.
 
 이 문서는 다음 작업 세션에서 현재 상태를 빠르게 이어받기 위한 요약이다. 기준 repo는 `/home/sysadmin/homelab-infra`이며 remote는 `git@github.com:JamieJai/sme-security-infra.git`이다.
 
@@ -54,7 +54,7 @@ Terraform VM provisioning
 
 - `storage01`에서 Kerberized NFS를 쓰지 않는 현재 기준으로 `rpc-svcgssd` 비활성화
 - Nextcloud Talk 설치/활성화
-- 초기 구축 가이드 추가: `docs/initial-build-guide.md`
+- 초기 구축 가이드 추가: `docs/getting-started/initial-build-guide.md`
 - 중복 루트 playbook 제거 및 `ansible/playbooks/` 기준으로 정리
 
 검증 결과:
@@ -71,7 +71,7 @@ Terraform VM provisioning
 - Nextcloud Mail 앱 enabled
 - Nextcloud 시스템 SMTP 설정: `mail01.toss.lan:25`
 - Nextcloud에서 mail01 25/587/993 접근 검증
-- `docs/nextcloud-mail.md` 추가
+- `docs/services/nextcloud-mail.md` 추가
 
 설계 결정:
 
@@ -91,7 +91,7 @@ Terraform VM provisioning
   - nextcloud: Nextcloud app log, Apache logs
   - mail01: mail/auth/syslog
   - keycloak: journald 기준 유지
-- `docs/wazuh-siem.md` 추가
+- `docs/services/wazuh-siem.md` 추가
 
 검증 결과:
 
@@ -104,7 +104,7 @@ Terraform VM provisioning
 커밋: `3254957 Add identity flow verification runbook`
 
 - `playbooks/identity-flow-verify.yml` 추가
-- `docs/identity-flow.md` 추가
+- `docs/services/identity-flow.md` 추가
 - 검증 항목:
   - Keycloak realm `homelab` enabled
   - LDAP federation `Samba-AD` 존재
@@ -128,7 +128,7 @@ Terraform VM provisioning
   - `ansible/archive/legacy/keycloak-deploy.yml`
   - `ansible/archive/legacy/keycloak-sso-setup.yml`
   - `ansible/archive/legacy/mail-server.yml`
-- `docs/ansible-playbook-catalog.md` 추가
+- `docs/reference/ansible-playbook-catalog.md` 추가
 - 전체 `site.yml`, `playbooks/*.yml` syntax 통과 확인
 
 중요한 분류:
@@ -156,7 +156,7 @@ Terraform VM provisioning
   - `terraform.tfvars`
   - `terraform.tfstate`
   - `terraform.tfstate.backup`
-- `docs/terraform-runbook.md` 추가
+- `docs/reference/terraform-runbook.md` 추가
 - `terraform fmt -check -recursive` 통과
 - `terraform validate` 통과
 
@@ -193,13 +193,13 @@ Identity flow verify: pass
 
 다음 세션에서 먼저 읽을 문서:
 
-1. `docs/initial-build-guide.md`
-2. `docs/ansible-playbook-catalog.md`
-3. `docs/terraform-runbook.md`
-4. `docs/identity-flow.md`
-5. `docs/wazuh-siem.md`
-6. `docs/nextcloud-mail.md`
-7. `docs/iac-runbook.md`
+1. `docs/getting-started/initial-build-guide.md`
+2. `docs/reference/ansible-playbook-catalog.md`
+3. `docs/reference/terraform-runbook.md`
+4. `docs/services/identity-flow.md`
+5. `docs/services/wazuh-siem.md`
+6. `docs/services/nextcloud-mail.md`
+7. `docs/operations/iac-runbook.md`
 
 ## 다음 프로세스 제안
 
@@ -214,7 +214,7 @@ git log --oneline -10
 
 ### 2. 전체 smoke test runbook 만들기
 
-현재는 개별 검증 playbook은 잘 정리되어 있다. 다음은 한 번에 전체 상태를 확인하는 `playbooks/verify-all.yml` 또는 `docs/verification-runbook.md`를 만드는 것이 좋다.
+현재는 개별 검증 playbook은 잘 정리되어 있다. 다음은 한 번에 전체 상태를 확인하는 `playbooks/verify-all.yml` 또는 `docs/operations/verification-runbook.md`를 만드는 것이 좋다.
 
 포함할 검증:
 
@@ -263,7 +263,7 @@ Wazuh 로그 수집은 붙었다. 다음은 경보 품질을 높이는 단계다
 ## 다음 세션 시작 프롬프트 예시
 
 ```text
-지난 세션 handoff는 docs/session-handoff-2026-07-04.md에 있어.
+지난 세션 handoff는 docs/archive/session-handoffs/session-handoff-2026-07-04.md에 있어.
 현재 sme-security-infra는 Terraform fmt/validate 통과, Ansible playbooks syntax 통과, AD→Keycloak→Nextcloud identity flow 검증, Wazuh agent/log 표준화, Nextcloud Talk/Mail 활성화까지 완료된 상태야.
 다음 단계로 전체 smoke test/verification runbook을 만들고, 이후 Wazuh hardening과 AI-defense pipeline 설계를 진행하자.
 ```

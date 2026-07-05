@@ -1,0 +1,55 @@
+---
+- name: Manage Grafana apt repository keyring
+  hosts: keycloak
+  become: true
+  gather_facts: false
+  vars:
+    grafana_apt_key_url: https://apt.grafana.com/gpg-full.key
+    grafana_apt_keyring: /etc/apt/keyrings/grafana.asc
+    grafana_apt_source: /etc/apt/sources.list.d/grafana.list
+  tasks:
+    - name: Install apt repository dependencies
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - wget
+        state: present
+        update_cache: false
+
+    - name: Ensure apt keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download Grafana signing key
+      ansible.builtin.get_url:
+        url: "{{ grafana_apt_key_url }}"
+        dest: "{{ grafana_apt_keyring }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure Grafana apt repository with signed-by
+      ansible.builtin.copy:
+        dest: "{{ grafana_apt_source }}"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          deb [signed-by={{ grafana_apt_keyring }}] https://apt.grafana.com stable main
+
+    - name: Refresh apt cache after Grafana repository migration
+      ansible.builtin.apt:
+        update_cache: true
+      register: grafana_apt_update
+
+    - name: Verify apt update did not use legacy trusted.gpg
+      ansible.builtin.assert:
+        that:
+          - "'legacy trusted.gpg' not in (grafana_apt_update.warnings | default([]) | join(' '))"
+        fail_msg: Grafana apt repository still uses a legacy trusted.gpg key.
