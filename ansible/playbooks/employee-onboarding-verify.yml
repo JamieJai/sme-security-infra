@@ -1,0 +1,176 @@
+---
+- name: Validate employee onboarding verification inputs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tags: [always]
+  tasks:
+    - name: Require employee identity and group variables
+      ansible.builtin.assert:
+        that:
+          - ad_user_name is defined
+          - ad_user_name | length > 0
+          - ad_user_email is defined
+          - ad_user_email | length > 0
+          - ad_user_groups is defined
+          - ad_user_groups | length == 1
+        fail_msg: Set ad_user_name, ad_user_email, and one ad_user_groups entry.
+
+- name: Verify the onboarded AD account
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  tags: [ad]
+  tasks:
+    - name: Read the AD user
+      ansible.builtin.command:
+        argv: [samba-tool, user, show, "{{ ad_user_name }}"]
+      register: onboarding_ad_user
+      changed_when: false
+    - name: Verify the AD mail attribute
+      ansible.builtin.assert:
+        that:
+          - ad_user_email in onboarding_ad_user.stdout
+        fail_msg: "AD mail attribute does not match {{ ad_user_email }}."
+    - name: Read the expected AD group membership
+      ansible.builtin.command:
+        argv: [samba-tool, group, listmembers, "{{ ad_user_groups[0] }}"]
+      register: onboarding_ad_group_members
+      changed_when: false
+    - name: Verify the user is an exact group member
+      ansible.builtin.assert:
+        that:
+          - ad_user_name in onboarding_ad_group_members.stdout_lines
+        fail_msg: "{{ ad_user_name }} is not a member of {{ ad_user_groups[0] }}."
+
+- name: Verify Keycloak realm and LDAP federation
+  hosts: iam_server
+  become: true
+  gather_facts: false
+  tags: [keycloak]
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    keycloak_ldap_provider_name: Samba-AD
+  tasks:
+    - name: Verify realm discovery is reachable
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/realms/{{ keycloak_realm }}/.well-known/openid-configuration"
+        status_code: 200
+        return_content: false
+    - name: Read Keycloak admin password from systemd unit
+      ansible.builtin.shell: >-
+        systemctl show keycloak -p Environment --value
+        | xargs -n1
+        | grep ^KEYCLOAK_ADMIN_PASSWORD=
+        | cut -d= -f2-
+        | tail -1
+      register: onboarding_keycloak_admin_password
+      changed_when: false
+      no_log: true
+    - name: Authenticate to Keycloak CLI
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - config
+          - credentials
+          - --server
+          - http://localhost:8080
+          - --realm
+          - master
+          - --user
+          - "{{ keycloak_admin_user }}"
+          - --password
+          - "{{ onboarding_keycloak_admin_password.stdout }}"
+      changed_when: false
+      no_log: true
+    - name: Read LDAP federation components
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - components
+          - -r
+          - "{{ keycloak_realm }}"
+          - -q
+          - providerId=ldap
+          - --fields
+          - id,name,providerId
+      register: onboarding_keycloak_ldap
+      changed_when: false
+    - name: Verify Samba AD LDAP federation exists
+      ansible.builtin.assert:
+        that:
+          - keycloak_ldap_provider_name in onboarding_keycloak_ldap.stdout
+        fail_msg: "Keycloak LDAP federation {{ keycloak_ldap_provider_name }} was not found."
+
+- name: Verify the department group and storage in Nextcloud
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+  tags: [nextcloud]
+  vars_files:
+    - ../group_vars/all.yml
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+    onboarding_mount_by_group:
+      HR_Staff: HR
+      Finance_Staff: Finance
+      IT_Admins: IT
+      Security_Team: Security
+  tasks:
+    - name: Require a storage mapping for the requested group
+      ansible.builtin.assert:
+        that:
+          - ad_user_groups[0] in onboarding_mount_by_group
+        fail_msg: "No Nextcloud storage mapping exists for {{ ad_user_groups[0] }}."
+    - name: Read Nextcloud groups
+      ansible.builtin.command:
+        argv: [sudo, -u, www-data, php, "{{ nextcloud_occ }}", group:list, --output=json]
+      register: onboarding_nextcloud_groups
+      changed_when: false
+    - name: Verify the expected Nextcloud group exists
+      ansible.builtin.assert:
+        that:
+          - ad_user_groups[0] in onboarding_nextcloud_groups.stdout
+        fail_msg: "Nextcloud group {{ ad_user_groups[0] }} was not found."
+    - name: Read Nextcloud external storage mounts
+      ansible.builtin.command:
+        argv: [sudo, -u, www-data, php, "{{ nextcloud_occ }}", files_external:list, --output=json]
+      register: onboarding_nextcloud_mounts
+      changed_when: false
+    - name: Verify the department mount and group restriction
+      ansible.builtin.assert:
+        that:
+          - expected_mount in onboarding_nextcloud_mounts.stdout
+          - ad_user_groups[0] in onboarding_nextcloud_mounts.stdout
+        fail_msg: "Nextcloud mount {{ expected_mount }} is missing or not restricted to {{ ad_user_groups[0] }}."
+      vars:
+        expected_mount: "/{{ onboarding_mount_by_group[ad_user_groups[0]] }}"
+
+- name: Verify mail domain and services
+  hosts: mail_server
+  become: true
+  gather_facts: false
+  tags: [mail]
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/mail.yml
+  tasks:
+    - name: Verify the requested email uses the managed mail domain
+      ansible.builtin.assert:
+        that:
+          - (postfix_domain | default(domain_name)) in ad_user_email
+        fail_msg: "{{ ad_user_email }} is outside the managed mail domain."
+    - name: Verify Postfix and Dovecot are active
+      ansible.builtin.command:
+        argv: [systemctl, is-active, postfix, dovecot]
+      changed_when: false
+    - name: Verify mail ports are reachable
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ item }}"
+        timeout: 5
+      loop: [25, 587, 993]

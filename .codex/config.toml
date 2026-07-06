@@ -1,0 +1,75 @@
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+
+[mcp_servers.ansible_homelab]
+command = "/home/sysadmin/ai-cli/venv/bin/ansible-mcp-server"
+cwd = "/home/sysadmin/homelab-infra/ansible"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.trivy]
+command = "/home/sysadmin/.trivy/plugins/mcp/trivy-mcp"
+args = ["--transport", "stdio", "--trivy-binary", "/home/sysadmin/bin/trivy"]
+cwd = "/home/sysadmin/homelab-infra"
+startup_timeout_sec = 20
+tool_timeout_sec = 180
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.homelab]
+command = "/home/sysadmin/ai-cli/venv/bin/python"
+args = ["/home/sysadmin/homelab-infra/.codex/mcp/homelab_mcp.py"]
+cwd = "/home/sysadmin/homelab-infra"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
+env_vars = [
+  "WAZUH_URL",
+  "WAZUH_USER",
+  "WAZUH_PASSWORD",
+  "NEXTCLOUD_URL",
+  "NEXTCLOUD_USER",
+  "NEXTCLOUD_APP_PASSWORD",
+  "KEYCLOAK_URL",
+  "KEYCLOAK_REALM",
+  "KEYCLOAK_ADMIN_USER",
+  "KEYCLOAK_ADMIN_PASSWORD",
+  "PROXMOX_URL",
+  "PROXMOX_TOKEN_ID",
+  "PROXMOX_TOKEN_SECRET",
+  "GITHUB_TOKEN",
+  "SLACK_WEBHOOK_URL",
+  "JIRA_BASE_URL",
+  "JIRA_EMAIL",
+  "JIRA_API_TOKEN",
+  "JIRA_PROJECT_KEY",
+]
+
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp"]
+cwd = "/home/sysadmin/homelab-infra"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
+
+
+# Optional: enable after Docker can pull ghcr.io/github/github-mcp-server
+# and GITHUB_PERSONAL_ACCESS_TOKEN or GITHUB_TOKEN is exported.
+[mcp_servers.github]
+command = "docker"
+args = ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+enabled = false
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
+env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN", "GITHUB_TOKEN"]
