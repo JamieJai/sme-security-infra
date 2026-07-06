@@ -33,3 +33,12 @@ ansible/group_vars/secrets.yml
 .codex/mcp/homelab_ops.sqlite
 reports/
 artifacts/
+
+# Local environment and secrets
+.env
+.env.*
+*.env
+*.local
+ops.env
+secrets.env
+.config/
