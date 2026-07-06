@@ -51,6 +51,8 @@ env_vars = [
   "JIRA_EMAIL",
   "JIRA_API_TOKEN",
   "JIRA_PROJECT_KEY",
+  "NOTION_TOKEN",
+  "NOTION_PARENT_PAGE_ID",
 ]
 
 

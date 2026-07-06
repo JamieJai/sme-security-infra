@@ -12,10 +12,11 @@ This project targets an internal IT operations automation portfolio. Codex shoul
 | 2 | GitHub / GitOps | Partial | Branch, commit, PR, README/CHANGELOG, issues | `homelab` MCP local git tools plus GitHub REST helpers; official GitHub MCP is configured disabled until Docker image/token are ready |
 | 3 | Database | Active | Store and query IT assets and operational state | Local SQLite DB at `.codex/mcp/homelab_ops.sqlite` via `ops_db_*` MCP tools |
 | 4 | Slack | Token-ready | Notify verify failures, onboarding completion, certificate expiry, backup failures | `slack_notify` uses `SLACK_WEBHOOK_URL` |
-| 5 | Jira | Token-ready | Create helpdesk/ITSM tickets and map incidents to runbooks | `jira_create_issue` uses Jira env vars |
-| 6 | Playwright | Configured | E2E verification for Keycloak, Nextcloud, Mail UI, admin consoles | `playwright` MCP via `npx -y @playwright/mcp` |
-| 7 | Docker | CLI-ready when installed | Container status, logs, health check, restart | `docker_*` MCP tools; current host has no Docker CLI |
-| 8 | Proxmox | Token-ready | VM inventory, node status, later snapshots/power operations | `proxmox_*` read tools use Proxmox token env vars |
+| 5 | Notion | Token-ready | Publish runbooks, onboarding reports, health reports, and postmortems to the operator knowledge base | `notion_create_page` and `notion_publish_project_file` use Notion env vars |
+| 6 | Jira | Token-ready | Create helpdesk/ITSM tickets and map incidents to runbooks | `jira_create_issue` uses Jira env vars |
+| 7 | Playwright | Configured | E2E verification for Keycloak, Nextcloud, Mail UI, admin consoles | `playwright` MCP via `npx -y @playwright/mcp` |
+| 8 | Docker | CLI-ready when installed | Container status, logs, health check, restart | `docker_*` MCP tools; current host has no Docker CLI |
+| 9 | Proxmox | Token-ready | VM inventory, node status, later snapshots/power operations | `proxmox_*` read tools use Proxmox token env vars |
 
 ## Current MCP Servers
 
@@ -39,6 +40,7 @@ Only export the variables needed for the workflow being performed. Do not store 
 | Official GitHub MCP | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | Slack | `SLACK_WEBHOOK_URL` |
 | Jira | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY` |
+| Notion | `NOTION_TOKEN`, `NOTION_PARENT_PAGE_ID` |
 | Wazuh | `WAZUH_URL`, `WAZUH_USER`, `WAZUH_PASSWORD` |
 | Nextcloud | `NEXTCLOUD_URL`, `NEXTCLOUD_USER`, `NEXTCLOUD_APP_PASSWORD` |
 | Keycloak | `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_ADMIN_USER`, `KEYCLOAK_ADMIN_PASSWORD` |
@@ -52,8 +54,9 @@ Only export the variables needed for the workflow being performed. Do not store 
 4. Validation: run syntax checks, Terraform validation/plan when relevant, and service verify scripts.
 5. Database: record verification and onboarding operation results in SQLite.
 6. Notification: send Slack notification for completion or failure when webhook is configured.
-7. Helpdesk: create or update Jira/GitHub issue if the task came from an incident or request.
-8. Delivery: commit focused changes and prepare PR summary.
+7. Knowledge base: publish approved reports/runbooks to Notion when Notion env vars are configured.
+8. Helpdesk: create or update Jira/GitHub issue if the task came from an incident or request.
+9. Delivery: commit focused changes and prepare PR summary.
 
 ## Safety Rules
 
@@ -69,5 +72,6 @@ Only export the variables needed for the workflow being performed. Do not store 
 2. Export GitHub token and enable the official `github` MCP after confirming Docker can pull `ghcr.io/github/github-mcp-server`.
 3. Add scheduled verification jobs that write to `.codex/mcp/homelab_ops.sqlite`.
 4. Add Slack/Jira notification wrappers to `scripts/verify-all.sh` or a dedicated reporting script.
-5. Extend Proxmox tools from read-only inventory/status to approved snapshot and power actions.
-6. Add Playwright E2E scripts for Keycloak login, Nextcloud login, OIDC flow, and admin console checks.
+5. Add a `verify-and-report.sh` flow that writes SQLite, sends Slack, and optionally publishes the Markdown report to Notion.
+6. Extend Proxmox tools from read-only inventory/status to approved snapshot and power actions.
+7. Add Playwright E2E scripts for Keycloak login, Nextcloud login, OIDC flow, and admin console checks.

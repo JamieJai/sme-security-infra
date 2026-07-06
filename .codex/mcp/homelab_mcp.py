@@ -526,6 +526,57 @@ def ops_db_assets(kind: str | None = None) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def _notion_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {os.environ['NOTION_TOKEN']}",
+        "Notion-Version": "2026-03-11",
+        "Accept": "application/json",
+    }
+
+
+def _notion_text_blocks(content: str) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        block_type = "paragraph"
+        text = line
+        if line.startswith("# "):
+            block_type = "heading_1"
+            text = line.removeprefix("# ").strip()
+        elif line.startswith("## "):
+            block_type = "heading_2"
+            text = line.removeprefix("## ").strip()
+        elif line.startswith("### "):
+            block_type = "heading_3"
+            text = line.removeprefix("### ").strip()
+        elif line.startswith("- "):
+            block_type = "bulleted_list_item"
+            text = line.removeprefix("- ").strip()
+        if not text:
+            continue
+        for offset in range(0, len(text), 1800):
+            chunk = text[offset : offset + 1800]
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": block_type,
+                    block_type: {"rich_text": [{"type": "text", "text": {"content": chunk}}]},
+                }
+            )
+    return blocks[:90]
+
+
+def _notion_create_page(parent_page_id: str, title: str, content: str) -> dict[str, Any]:
+    payload = {
+        "parent": {"page_id": parent_page_id},
+        "properties": {"title": {"title": [{"text": {"content": title[:2000]}}]}},
+        "children": _notion_text_blocks(content),
+    }
+    return _post_json("https://api.notion.com/v1/pages", payload, headers=_notion_headers())
+
+
 @mcp.tool
 def slack_notify(text: str, channel: str | None = None) -> dict[str, Any]:
     """Send an operations notification through SLACK_WEBHOOK_URL."""
@@ -536,6 +587,38 @@ def slack_notify(text: str, channel: str | None = None) -> dict[str, Any]:
     if channel:
         payload["channel"] = channel
     return _post_json(os.environ["SLACK_WEBHOOK_URL"], payload)
+
+
+@mcp.tool
+def notion_create_page(title: str, content: str, parent_page_id: str | None = None) -> dict[str, Any]:
+    """Create a Notion page under NOTION_PARENT_PAGE_ID or the provided parent_page_id."""
+    missing = _env_required("NOTION_TOKEN")
+    if missing:
+        return {"error": missing}
+    parent = parent_page_id or os.getenv("NOTION_PARENT_PAGE_ID")
+    if not parent:
+        return {"error": "missing environment variable or argument: NOTION_PARENT_PAGE_ID"}
+    return _notion_create_page(parent, title, content)
+
+
+@mcp.tool
+def notion_publish_project_file(relative_path: str, title: str | None = None, parent_page_id: str | None = None) -> dict[str, Any]:
+    """Publish a project markdown/text file to Notion as an operations document."""
+    missing = _env_required("NOTION_TOKEN")
+    if missing:
+        return {"error": missing}
+    parent = parent_page_id or os.getenv("NOTION_PARENT_PAGE_ID")
+    if not parent:
+        return {"error": "missing environment variable or argument: NOTION_PARENT_PAGE_ID"}
+    try:
+        path = _safe_project_path(relative_path)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    if not path.is_file():
+        return {"error": f"file not found: {relative_path}"}
+    content = path.read_text(encoding="utf-8", errors="replace")
+    page_title = title or path.stem.replace("-", " ").title()
+    return _notion_create_page(parent, page_title, content)
 
 
 @mcp.tool

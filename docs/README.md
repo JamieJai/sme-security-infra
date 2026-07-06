@@ -12,6 +12,7 @@
 | 어떤 스크립트를 언제 실행할지 알고 싶다 | [operations/operation-modes.md](operations/operation-modes.md) |
 | 현재 상태를 점검한다 | [operations/verification-runbook.md](operations/verification-runbook.md) |
 | MCP 기반 IT Manager 자동화 로드맵을 본다 | [operations/mcp-roadmap.md](operations/mcp-roadmap.md) |
+| IT Manager 플랫폼 방향성을 본다 | [operations/it-manager-platform-roadmap.md](operations/it-manager-platform-roadmap.md) |
 | 신입사원 온보딩 운영 절차를 본다 | [operations/employee-onboarding-runbook.md](operations/employee-onboarding-runbook.md) |
 | 전체 자동화 목표를 본다 | [getting-started/full-rebuild-roadmap.md](getting-started/full-rebuild-roadmap.md) |
 | Ansible playbook 목록과 위험도를 확인한다 | [reference/ansible-playbook-catalog.md](reference/ansible-playbook-catalog.md) |
