@@ -28,3 +28,8 @@ ansible/group_vars/secrets.yml
 
 # Temporary
 *.tmp
+
+# Generated operations artifacts
+.codex/mcp/homelab_ops.sqlite
+reports/
+artifacts/

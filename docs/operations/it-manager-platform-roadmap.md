@@ -8,6 +8,7 @@
 |---|---|---|
 | Identity | AD, Keycloak, LDAP/OIDC | 계정, 그룹, SSO, 접근 제어의 기준 |
 | Collaboration | Nextcloud, Nextcloud Talk, Mail | 파일 공유, 웹 메신저, 메일 업무 환경 |
+| Endpoint | Windows AD Join package, future macOS checks | 신규 PC 도메인 가입, 기본 보안 설정, 사용자 셀프서비스 |
 | Operations alerts | Slack | 온보딩 완료, 검증 실패, 인증서/백업/Wazuh 경보 같은 공통 운영 알림 |
 | Knowledge base | Notion | 승인된 runbook, 온보딩 리포트, 장애 회고, 주간 IT health report 보관 |
 | Helpdesk | Jira/GitHub Issues | 사용자 요청, 장애 티켓, 재발 방지 task 추적 |
@@ -51,14 +52,24 @@
 4. Jira/GitHub issue 생성 또는 갱신
 5. 해결 후 Slack 알림과 Notion 회고 문서 publish
 
+
+### 4. Endpoint self-service
+
+1. 온보딩 포털 또는 제한된 공유 경로에서 사번 기반 Windows AD Join package 제공
+2. package는 secret을 포함하지 않고, 실행 시 AD credential을 입력받음
+3. DNS 설정/검증, domain join, reboot를 PowerShell script로 표준화
+4. v2에서는 Offline Domain Join blob으로 credential 입력 부담을 줄임
+5. 실행 결과를 IT health/reporting workflow와 연결
+
 ## 우선순위
 
 1. `verify-and-report.sh` 추가: 전체 검증, Markdown summary, SQLite 기록, Slack 알림, 선택적 Notion publish.
-2. `docs/operations/helpdesk-scenarios.md` 추가: IT Manager 면접용 문제 해결 사례 구조화.
-3. `docs/getting-started/employee-it-onboarding.md` 추가: 비전문가용 SSO, Mail, Nextcloud, Talk 사용 가이드.
-4. Nextcloud Talk 운영 보강: 사용자 가이드, 알림 정책, TURN 서버 필요성 판단, 모바일 사용 범위 정리.
-5. Notion 운영 페이지 템플릿 정의: Runbook, Incident Review, Weekly IT Health, Employee Onboarding Report.
-6. Slack 알림 taxonomy 정의: `success`, `partial`, `failed`, `attention_required` 같은 상태와 메시지 포맷 통일.
+2. Windows AD Join 셀프서비스 v1: 사번 기반 no-secret package 생성, 사용자 가이드, 향후 Offline Domain Join 설계.
+3. `docs/operations/helpdesk-scenarios.md` 추가: IT Manager 면접용 문제 해결 사례 구조화.
+4. `docs/getting-started/employee-it-onboarding.md` 추가: 비전문가용 SSO, Mail, Nextcloud, Talk 사용 가이드.
+5. Nextcloud Talk 운영 보강: 사용자 가이드, 알림 정책, TURN 서버 필요성 판단, 모바일 사용 범위 정리.
+6. Notion 운영 페이지 템플릿 정의: Runbook, Incident Review, Weekly IT Health, Employee Onboarding Report.
+7. Slack 알림 taxonomy 정의: `success`, `partial`, `failed`, `attention_required` 같은 상태와 메시지 포맷 통일.
 
 ## Notion MCP 운영 기준
 

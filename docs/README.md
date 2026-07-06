@@ -14,9 +14,11 @@
 | MCP 기반 IT Manager 자동화 로드맵을 본다 | [operations/mcp-roadmap.md](operations/mcp-roadmap.md) |
 | IT Manager 플랫폼 방향성을 본다 | [operations/it-manager-platform-roadmap.md](operations/it-manager-platform-roadmap.md) |
 | 신입사원 온보딩 운영 절차를 본다 | [operations/employee-onboarding-runbook.md](operations/employee-onboarding-runbook.md) |
+| 신규 입사자용 IT 사용 가이드를 본다 | [getting-started/employee-it-onboarding.md](getting-started/employee-it-onboarding.md) |
 | 전체 자동화 목표를 본다 | [getting-started/full-rebuild-roadmap.md](getting-started/full-rebuild-roadmap.md) |
 | Ansible playbook 목록과 위험도를 확인한다 | [reference/ansible-playbook-catalog.md](reference/ansible-playbook-catalog.md) |
 | Terraform 기준을 확인한다 | [reference/terraform-runbook.md](reference/terraform-runbook.md) |
+| Windows/macOS 단말 관리 방향을 본다 | [services/endpoint-management.md](services/endpoint-management.md) |
 
 ## 디렉터리 구조
 
