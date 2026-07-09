@@ -35,3 +35,22 @@ variable "proxmox_api_token_secret" {
 variable "pm_api_url" {
   type = string
 }
+
+variable "windows_vms" {
+  type = map(object({
+    name        = string
+    vmid        = number
+    target_node = string
+    cores       = number
+    memory      = number
+    disk_size   = string
+    storage     = string
+    bridge      = string
+    windows_iso = string
+    virtio_iso  = string
+    efi_storage = string
+    tpm_storage = string
+    tags        = optional(list(string), [])
+  }))
+  default = {}
+}

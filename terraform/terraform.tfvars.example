@@ -97,3 +97,25 @@ vms = {
 
 proxmox_api_token_id     = "root@pam!terraform"
 proxmox_api_token_secret = "CHANGE_ME_USE_TF_VAR_proxmox_api_token_secret_OR_LOCAL_TFVARS"
+
+
+# Optional Windows 11 management VM for RSAT/djoin ODJ operations.
+# Upload Windows and VirtIO ISOs to Proxmox first, then copy this block to
+# local terraform.tfvars and adjust ISO volids. Do not commit local tfvars.
+windows_vms = {
+  win-mgmt01 = {
+    name        = "win-mgmt01"
+    vmid        = 109
+    target_node = "pve01"
+    cores       = 4
+    memory      = 8192
+    disk_size   = "80G"
+    storage     = "local-lvm"
+    bridge      = "vmbr0"
+    windows_iso = "local:iso/Windows11.iso"
+    virtio_iso  = "local:iso/virtio-win.iso"
+    efi_storage = "local-lvm"
+    tpm_storage = "local-lvm"
+    tags        = ["windows", "management", "odj"]
+  }
+}

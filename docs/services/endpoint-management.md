@@ -67,6 +67,37 @@ AD Join은 클라이언트가 AD DNS를 사용해야 안정적으로 동작한�
 
 현재 PowerShell script는 `-DnsServers` 값이 전달되면 활성 NIC의 DNS server를 설정한다. 권한 문제 또는 네트워크 정책 때문에 실패할 수 있으므로, 수동 DNS 설정 절차도 유지한다.
 
+
+## Windows Management VM for ODJ
+
+ODJ v2를 구현하려면 `djoin.exe /provision`을 실행할 Windows 관리 호스트가 필요하다. Windows Server를 새로 도입하지 않고, 라이선스가 있는 Windows 11 Pro/Enterprise VM을 RSAT/djoin 전용 관리 호스트로 사용하는 방향을 기준으로 둔다.
+
+현재 Terraform에는 optional Windows VM module이 추가되어 있다.
+
+- Module: `terraform/modules/windows-vm`
+- Variable: `windows_vms`
+- Example: `terraform/terraform.tfvars.example`
+- 기본값은 `{}`라서 기존 Ubuntu VM에는 영향이 없다.
+
+필요한 사전 조건:
+
+1. Proxmox `local` storage에 Windows 11 ISO 업로드
+2. Proxmox `local` storage에 VirtIO driver ISO 업로드
+3. local-only `terraform/terraform.tfvars`에 `windows_vms.win-mgmt01` 블록 추가
+4. `terraform plan`에서 `win-mgmt01` 1개 생성만 표시되는지 확인
+5. `terraform apply` 후 Proxmox console에서 Windows 설치
+6. Windows 정품 인증은 보유한 합법 라이선스와 공식 활성화 방식만 사용
+7. RSAT/AD DS tools와 필요한 경우 OpenSSH/WinRM을 활성화
+8. 이후 `djoin.exe /provision` 기반 ODJ blob 생성 workflow를 구현
+
+보안 기준:
+
+- Windows management VM은 일반 업무/브라우징용이 아니라 RSAT/djoin 전용으로 사용한다.
+- domain admin 대신 ODJ/join 전용 delegated account를 사용한다.
+- ODJ blob은 민감 자료로 취급하고 사용자/장비별로 발급한다.
+- blob 저장 위치는 접근 제한하고, 발급/다운로드/폐기 이력을 SQLite/Slack/Notion workflow와 연결한다.
+- v1 `Join-HomelabDomain.ps1` 방식은 ODJ 준비 전 fallback으로 유지한다.
+
 ## Offline Domain Join v2 설계
 
 더 안전하고 사용자 경험이 좋은 방식은 Windows의 Offline Domain Join이다.
