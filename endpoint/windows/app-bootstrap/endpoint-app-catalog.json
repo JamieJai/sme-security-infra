@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "id": "nextcloud-desktop-msi",
+      "displayName": "Nextcloud Desktop Client",
+      "enabled": true,
+      "installerType": "command",
+      "command": "%SystemRoot%\\System32\\msiexec.exe",
+      "arguments": "/i \"\\\\storage01\\endpoint-apps\\Nextcloud-33.0.7-x64.msi\" /qn /norestart ALLUSERS=1",
+      "detection": {
+        "type": "path",
+        "path": "%ProgramFiles%\\Nextcloud\\nextcloud.exe"
+      },
+      "notes": "Place the MSI in \\\\storage01\\endpoint-apps before running. Confirm this MSI is the Windows desktop client package, not a server package."
+    },
+    {
+      "id": "nextcloud-talk-msi",
+      "displayName": "Nextcloud Talk Desktop",
+      "enabled": true,
+      "installerType": "command",
+      "command": "%SystemRoot%\\System32\\msiexec.exe",
+      "arguments": "/i \"\\\\storage01\\endpoint-apps\\Nextcloud.Talk-windows-x64.msi\" /qn /norestart ALLUSERS=1",
+      "detection": {
+        "type": "path",
+        "path": "%ProgramFiles%\\Nextcloud Talk\\Nextcloud Talk.exe"
+      },
+      "notes": "If the MSI installs per-user, adjust detection to %LocalAppData%\\Programs\\Nextcloud Talk\\Nextcloud Talk.exe or install from the interactive elevated user context."
+    }
+  ]
+}

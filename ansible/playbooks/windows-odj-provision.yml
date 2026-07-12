@@ -1,0 +1,150 @@
+---
+- name: Provision a Windows Offline Domain Join blob
+  hosts: windows_management
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/vault.yml
+
+  vars:
+    odj_domain_name: "{{ domain_name | default('toss.lan') }}"
+    odj_join_user: "Administrator@{{ odj_domain_name }}"
+    odj_blob_dir: 'C:\ProgramData\homelab-odj'
+    odj_blob_path: "{{ odj_blob_dir }}\\{{ odj_computer_name }}.blob"
+    odj_blob_scp_path: "C:/ProgramData/homelab-odj/{{ odj_computer_name }}.blob"
+    odj_task_name: "HomelabODJProvision_{{ odj_computer_name }}"
+    odj_reuse_existing_computer: false
+    odj_fetch_blob: true
+    odj_local_blob_dir: "{{ playbook_dir }}/../../artifacts/endpoint-odj-blobs"
+    odj_local_blob_path: "{{ odj_local_blob_dir }}/{{ odj_computer_name }}.blob"
+    odj_preflight_script: |
+      $ErrorActionPreference = 'Stop'
+      $djoin = Join-Path $env:SystemRoot 'System32\djoin.exe'
+      if (-not (Test-Path -LiteralPath $djoin)) {
+        throw "djoin.exe not found at $djoin"
+      }
+      $cs = Get-CimInstance -ClassName Win32_ComputerSystem
+      if (-not $cs.PartOfDomain) {
+        throw "Windows management host must be joined to {{ odj_domain_name }} before ODJ provisioning."
+      }
+      nltest /dsgetdc:{{ odj_domain_name }} | Out-Null
+    odj_provision_script: |
+      $ErrorActionPreference = 'Stop'
+      $TaskName = '{{ odj_task_name }}'
+      $ComputerName = '{{ odj_computer_name }}'
+      $DomainName = '{{ odj_domain_name }}'
+      $BlobDir = '{{ odj_blob_dir }}'
+      $BlobPath = '{{ odj_blob_path }}'
+      $TaskUser = '{{ odj_join_user }}'
+      $TaskPassword = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{{ ad_admin_password | b64encode }}'))
+      $Reuse = '{{ odj_reuse_existing_computer | bool | ternary("true", "false") }}'
+      $ScriptPath = Join-Path $BlobDir "$ComputerName-provision.ps1"
+
+      New-Item -ItemType Directory -Path $BlobDir -Force | Out-Null
+      icacls $BlobDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
+
+      $provision = @'
+      $ErrorActionPreference = 'Stop'
+      $djoin = Join-Path $env:SystemRoot 'System32\djoin.exe'
+      $args = @('/provision', '/domain', '__DOMAIN__', '/machine', '__COMPUTER__', '/savefile', '__BLOB__')
+      if ('__REUSE__' -eq 'true') {
+        $args += '/reuse'
+      }
+      & $djoin @args
+      if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+      }
+      '@
+      $provision = $provision.Replace('__DOMAIN__', $DomainName).Replace('__COMPUTER__', $ComputerName).Replace('__BLOB__', $BlobPath).Replace('__REUSE__', $Reuse)
+      Set-Content -Path $ScriptPath -Value $provision -Encoding UTF8
+
+      try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+        Register-ScheduledTask -TaskName $TaskName -Action $action -User $TaskUser -Password $TaskPassword -RunLevel Highest -Force | Out-Null
+        Start-ScheduledTask -TaskName $TaskName
+
+        $deadline = (Get-Date).AddMinutes(2)
+        do {
+          Start-Sleep -Seconds 2
+          $info = Get-ScheduledTaskInfo -TaskName $TaskName
+          $state = (Get-ScheduledTask -TaskName $TaskName).State
+        } while ($state -ne 'Ready' -and (Get-Date) -lt $deadline)
+
+        if ($state -ne 'Ready') {
+          throw "Timed out waiting for ODJ scheduled task to finish."
+        }
+        if ($info.LastTaskResult -ne 0) {
+          throw "ODJ scheduled task failed with result $($info.LastTaskResult)."
+        }
+        if (-not (Test-Path -LiteralPath $BlobPath)) {
+          throw "ODJ blob was not created at $BlobPath."
+        }
+        icacls $BlobPath /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' | Out-Null
+        Get-Item -LiteralPath $BlobPath | Select-Object FullName,Length | ConvertTo-Json -Compress
+      }
+      finally {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
+        $TaskPassword = ''
+      }
+
+  tasks:
+    - name: Validate required ODJ variables
+      ansible.builtin.assert:
+        that:
+          - odj_computer_name is defined
+          - odj_computer_name | length > 0
+          - odj_computer_name | length <= 15
+          - odj_computer_name is match('^[A-Z0-9][A-Z0-9-]{0,14}$')
+          - ad_admin_password is defined
+          - ad_admin_password | length > 0
+        fail_msg: "Set odj_computer_name and provide vaulted ad_admin_password."
+      no_log: true
+
+    - name: Run ODJ preflight on Windows management host
+      ansible.builtin.raw: >-
+        powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass
+        -EncodedCommand {{ odj_preflight_script | b64encode(encoding='utf-16-le') }}
+      changed_when: false
+
+    - name: Provision ODJ blob through a one-shot scheduled task
+      ansible.builtin.raw: >-
+        powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass
+        -EncodedCommand {{ odj_provision_script | b64encode(encoding='utf-16-le') }}
+      register: odj_provision_result
+      changed_when: true
+      no_log: true
+
+    - name: Ensure local ODJ blob artifact directory exists
+      ansible.builtin.file:
+        path: "{{ odj_local_blob_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      when: odj_fetch_blob | bool
+
+    - name: Fetch ODJ blob from Windows management host with scp
+      ansible.builtin.command:
+        cmd: >-
+          scp -q -o BatchMode=yes
+          {{ ansible_user | default('localadmin') }}@{{ ansible_host | default(inventory_hostname) }}:{{ odj_blob_scp_path }}
+          {{ odj_local_blob_path }}
+      delegate_to: localhost
+      when: odj_fetch_blob | bool
+      no_log: true
+
+    - name: Restrict local ODJ blob permissions
+      ansible.builtin.file:
+        path: "{{ odj_local_blob_path }}"
+        mode: "0600"
+      delegate_to: localhost
+      when: odj_fetch_blob | bool
+
+    - name: Show ODJ provisioning summary
+      ansible.builtin.debug:
+        msg:
+          - "ODJ blob provisioned for {{ odj_computer_name }} on {{ inventory_hostname }}."
+          - "Remote blob path: {{ odj_blob_path }}"
+          - "Local blob path: {{ odj_local_blob_path if odj_fetch_blob | bool else 'not fetched' }}"

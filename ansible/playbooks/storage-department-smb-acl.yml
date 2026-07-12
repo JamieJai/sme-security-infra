@@ -1,0 +1,107 @@
+---
+- name: Align SMB department folder ACLs with AD groups
+  hosts: storage_server
+  become: yes
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    storage_shared_root: /data/shared
+    storage_departments_root: /data/shared/departments
+    storage_domain_users_group: domain users
+
+  tasks:
+    - name: Ensure POSIX ACL tools are installed
+      ansible.builtin.apt:
+        name: acl
+        state: present
+        update_cache: yes
+
+    - name: Ensure shared root is accessible to domain users
+      ansible.builtin.file:
+        path: "{{ storage_shared_root }}"
+        state: directory
+        owner: www-data
+        group: "{{ storage_domain_users_group }}"
+        mode: "2775"
+
+    - name: Ensure departments root exists without broad write access
+      ansible.builtin.file:
+        path: "{{ storage_departments_root }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0770"
+
+    - name: Allow domain users to list the departments root
+      ansible.posix.acl:
+        path: "{{ storage_departments_root }}"
+        entity: "{{ storage_domain_users_group }}"
+        etype: group
+        permissions: rx
+        state: present
+
+    - name: Keep non-domain users out of the departments root
+      ansible.posix.acl:
+        path: "{{ storage_departments_root }}"
+        etype: other
+        permissions: "0"
+        state: present
+
+    - name: Ensure each department directory exists
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: www-data
+        group: "{{ item.group | lower }}"
+        mode: "2770"
+      loop: "{{ nextcloud_department_storage }}"
+
+    - name: Grant each department group access to its own directory
+      ansible.posix.acl:
+        path: "{{ item.path }}"
+        entity: "{{ item.group | lower }}"
+        etype: group
+        permissions: rwx
+        state: present
+      loop: "{{ nextcloud_department_storage }}"
+
+    - name: Set default ACL for each department group on new child items
+      ansible.posix.acl:
+        path: "{{ item.path }}"
+        entity: "{{ item.group | lower }}"
+        etype: group
+        permissions: rwx
+        default: true
+        state: present
+      loop: "{{ nextcloud_department_storage }}"
+
+    - name: Remove access for other users on department directories
+      ansible.posix.acl:
+        path: "{{ item.path }}"
+        etype: other
+        permissions: "0"
+        state: present
+      loop: "{{ nextcloud_department_storage }}"
+
+    - name: Remove default access for other users on new child items
+      ansible.posix.acl:
+        path: "{{ item.path }}"
+        etype: other
+        permissions: "0"
+        default: true
+        state: present
+      loop: "{{ nextcloud_department_storage }}"
+
+    - name: Read resulting department ACLs
+      ansible.builtin.command: >-
+        getfacl -p {{ storage_departments_root }}
+        {{ nextcloud_department_storage | map(attribute='path') | join(' ') }}
+      register: storage_department_acl_result
+      changed_when: false
+
+    - name: Print resulting department ACLs
+      ansible.builtin.debug:
+        var: storage_department_acl_result.stdout_lines

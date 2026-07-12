@@ -21,6 +21,7 @@
 - 사내 메신저는 Nextcloud Talk 웹 앱으로 구현돼 있다. `ansible/playbooks/nextcloud-talk.yml`이 설치/활성화를 담당하고, `verify-all.yml`은 `mail`과 `spreed` 앱 활성 상태를 같이 검증한다.
 - Slack은 `SLACK_WEBHOOK_URL` 기반으로 온보딩 결과 알림을 보낼 수 있다. 다음 단계는 온보딩 외 verify, backup, certificate, Wazuh 이벤트까지 공통 알림으로 확장하는 것이다.
 - Notion은 `homelab` MCP의 `notion_create_page`, `notion_publish_project_file` helper를 통해 운영 문서를 publish할 수 있게 한다. 토큰과 부모 페이지 ID는 env var로만 주입한다.
+- Helpdesk scenario는 `docs/operations/helpdesk-scenarios.md`에 PC 도메인 가입 실패, AD 로그인 실패, SSO 실패, 부서 폴더 미노출, Mail 로그인 실패, IT health 실패 기준으로 정리됐다.
 
 ## 운영 workflow 목표
 
@@ -65,7 +66,7 @@
 
 1. `verify-and-report.sh` 추가: 전체 검증, Markdown summary, SQLite 기록, Slack 알림, 선택적 Notion publish.
 2. Windows AD Join 셀프서비스 v1: 사번 기반 no-secret package 생성, 사용자 가이드, 향후 Offline Domain Join 설계.
-3. `docs/operations/helpdesk-scenarios.md` 추가: IT Manager 면접용 문제 해결 사례 구조화.
+3. `docs/operations/helpdesk-scenarios.md` 유지/확장: IT Manager 면접용 문제 해결 사례와 read-only 진단 절차 구조화.
 4. `docs/getting-started/employee-it-onboarding.md` 추가: 비전문가용 SSO, Mail, Nextcloud, Talk 사용 가이드.
 5. Nextcloud Talk 운영 보강: 사용자 가이드, 알림 정책, TURN 서버 필요성 판단, 모바일 사용 범위 정리.
 6. Notion 운영 페이지 템플릿 정의: Runbook, Incident Review, Weekly IT Health, Employee Onboarding Report.

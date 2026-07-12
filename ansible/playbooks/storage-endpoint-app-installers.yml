@@ -1,0 +1,160 @@
+---
+- name: Prepare SMB location for endpoint app installers
+  hosts: storage_server
+  become: yes
+  gather_facts: false
+
+  vars:
+    endpoint_app_installer_dir: /data/shared/endpoint-apps
+    endpoint_app_share_name: endpoint-apps
+    endpoint_app_admin_group: it_admins
+    endpoint_app_reader_groups:
+      - domain users
+      - domain computers
+
+  tasks:
+    - name: Ensure POSIX ACL tools are installed
+      ansible.builtin.apt:
+        name: acl
+        state: present
+        update_cache: yes
+
+    - name: Ensure endpoint app installer directory exists
+      ansible.builtin.file:
+        path: "{{ endpoint_app_installer_dir }}"
+        state: directory
+        owner: www-data
+        group: "{{ endpoint_app_admin_group }}"
+        mode: "2770"
+
+    - name: Allow IT admins to manage endpoint installers
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        entity: "{{ endpoint_app_admin_group }}"
+        etype: group
+        permissions: rwx
+        state: present
+
+    - name: Allow IT admins to manage new endpoint installer files by default
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        entity: "{{ endpoint_app_admin_group }}"
+        etype: group
+        permissions: rwx
+        default: true
+        state: present
+
+    - name: Allow users and computers to read endpoint installers
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        entity: "{{ item }}"
+        etype: group
+        permissions: rx
+        state: present
+      loop: "{{ endpoint_app_reader_groups }}"
+
+    - name: Allow users and computers to read new files by default
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        entity: "{{ item }}"
+        etype: group
+        permissions: rx
+        default: true
+        state: present
+      loop: "{{ endpoint_app_reader_groups }}"
+
+    - name: Keep installer directory private from local other users
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        etype: other
+        permissions: "0"
+        state: present
+
+    - name: Publish dedicated read-only SMB share for endpoint installers
+      ansible.builtin.blockinfile:
+        path: /etc/samba/smb.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK endpoint app installers"
+        block: |
+          [{{ endpoint_app_share_name }}]
+             path = {{ endpoint_app_installer_dir }}
+             browsable = yes
+             read only = yes
+             valid users = @"Domain Users" @"Domain Computers" @"IT_Admins"
+      notify: Restart Samba
+
+    - name: Publish endpoint app bootstrap script to SMB folder
+      ansible.builtin.copy:
+        src: ../../endpoint/windows/app-bootstrap/Install-EndpointApps.ps1
+        dest: "{{ endpoint_app_installer_dir }}/Install-EndpointApps.ps1"
+        owner: www-data
+        group: "{{ endpoint_app_admin_group }}"
+        mode: "0640"
+
+    - name: Publish endpoint app catalog to SMB folder
+      ansible.builtin.copy:
+        src: ../../endpoint/windows/app-bootstrap/endpoint-app-catalog.json
+        dest: "{{ endpoint_app_installer_dir }}/endpoint-app-catalog.json"
+        owner: www-data
+        group: "{{ endpoint_app_admin_group }}"
+        mode: "0640"
+
+    - name: Find existing files in endpoint installer directory
+      ansible.builtin.find:
+        paths: "{{ endpoint_app_installer_dir }}"
+        file_type: file
+      register: endpoint_app_existing_files
+      changed_when: false
+
+    - name: Ensure existing endpoint installer files are IT-managed
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: www-data
+        group: "{{ endpoint_app_admin_group }}"
+        mode: "0640"
+      loop: "{{ endpoint_app_existing_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+
+    - name: Ensure existing installer tree is readable by users and computers
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        entity: "{{ item }}"
+        etype: group
+        permissions: rX
+        recursive: true
+        state: present
+      loop: "{{ endpoint_app_reader_groups }}"
+
+    - name: Ensure existing installer tree remains writable by IT admins
+      ansible.posix.acl:
+        path: "{{ endpoint_app_installer_dir }}"
+        entity: "{{ endpoint_app_admin_group }}"
+        etype: group
+        permissions: rwX
+        recursive: true
+        state: present
+
+    - name: List current endpoint installers
+      ansible.builtin.find:
+        paths: "{{ endpoint_app_installer_dir }}"
+        patterns: "*.msi"
+        file_type: file
+      register: endpoint_app_installer_files
+      changed_when: false
+
+    - name: Validate Samba config
+      ansible.builtin.command: testparm -s
+      changed_when: false
+
+    - name: Print endpoint installer SMB path summary
+      ansible.builtin.debug:
+        msg:
+          - 'SMB path: \\\\storage01\\endpoint-apps'
+          - "MSI files present: {{ endpoint_app_installer_files.files | map(attribute='path') | list }}"
+
+  handlers:
+    - name: Restart Samba
+      ansible.builtin.service:
+        name: smbd
+        state: restarted

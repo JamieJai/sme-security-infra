@@ -26,11 +26,14 @@
 - `scripts/generate-windows-ad-join-package.sh`
   - `employee_id` 기준으로 다운로드 가능한 package directory를 생성한다.
   - `run-as-admin.cmd`, PowerShell script, README를 생성한다.
+  - 기본 DNS는 현재 AD DNS 기준인 `192.168.0.21,192.168.0.20`을 사용한다.
 
 예시:
 
 ```bash
-./scripts/generate-windows-ad-join-package.sh   --employee-id 20260706-001   --computer-name PC-20260706001
+./scripts/generate-windows-ad-join-package.sh \
+  --employee-id 20260706-001 \
+  --computer-name PC-2026070601
 ```
 
 생성 위치:
@@ -66,7 +69,6 @@ AD Join은 클라이언트가 AD DNS를 사용해야 안정적으로 동작한�
 - 실패 시 IT팀에 전달할 screenshot/log 항목
 
 현재 PowerShell script는 `-DnsServers` 값이 전달되면 활성 NIC의 DNS server를 설정한다. 권한 문제 또는 네트워크 정책 때문에 실패할 수 있으므로, 수동 DNS 설정 절차도 유지한다.
-
 
 ## Windows Management VM for ODJ
 
@@ -123,6 +125,308 @@ IT automation host
 - `djoin /provision`을 실행할 Windows 관리 호스트 또는 RSAT 환경이 필요하다.
 - 생성된 blob은 민감한 가입 자료이므로 만료/회수/접근제어 정책이 필요하다.
 - 잘못 배포된 blob은 해당 computer object를 disable/delete하는 recovery 절차와 연결해야 한다.
+
+현재 v2 자동화:
+
+- `ansible/inventory/hosts`
+  - `windows_management` group에 `win-mgmt01`을 등록한다.
+  - SSH transport와 PowerShell shell을 사용한다.
+- `ansible/playbooks/windows-odj-provision.yml`
+  - `win-mgmt01`에서 `djoin.exe` 존재 여부, domain join 상태, DC discovery를 확인한다.
+  - vaulted `ad_admin_password`를 사용해 `Administrator@toss.lan` 권한의 1회성 scheduled task를 등록한다.
+  - task 안에서 `djoin.exe /provision /domain toss.lan /machine <COMPUTER> /savefile <BLOB>`을 실행한다.
+  - task와 임시 script를 삭제하고 blob ACL을 `SYSTEM`과 `Administrators`로 제한한다.
+  - 기본값으로 scp를 사용해 blob을 `artifacts/endpoint-odj-blobs/<COMPUTER>.blob`에 가져온다.
+- `endpoint/windows/offline-domain-join/Apply-OfflineDomainJoin.ps1`
+  - 사용자 PC에서 ODJ blob을 `djoin.exe /requestODJ /loadfile ... /localos`로 적용한다.
+  - 로컬 관리자 권한, computer name 형식, blob 존재 여부를 확인한다.
+  - DNS를 AD DNS로 설정하고 재부팅한다.
+- `scripts/generate-windows-odj-package.sh`
+  - 가져온 blob과 apply script를 `artifacts/endpoint-odj/<employee_id>/<computer_name>/`에 묶는다.
+  - package 생성 이력을 `.codex/mcp/homelab_ops.sqlite`의 `operations` table에 `endpoint_odj_package`로 기록한다.
+
+발급 예시:
+
+```bash
+cd ansible
+ansible-playbook -i inventory/hosts playbooks/windows-odj-provision.yml \
+  --vault-password-file .vault_pass \
+  -e odj_computer_name=PC-2026070901
+```
+
+패키지 생성 예시:
+
+```bash
+./scripts/generate-windows-odj-package.sh \
+  --employee-id 20260709-001 \
+  --computer-name PC-2026070901 \
+  --blob-file artifacts/endpoint-odj-blobs/PC-2026070901.blob
+```
+
+사용자 PC 적용:
+
+1. 보호된 채널로 ODJ package를 전달한다.
+2. 사용자 또는 IT 담당자가 로컬 관리자 권한으로 `run-as-admin.cmd`를 실행한다.
+3. 재부팅 후 AD 계정으로 로그인한다.
+4. 실패하면 package directory, 실행 시각, 오류 메시지, 현재 DNS 설정을 IT팀에 전달한다.
+
+Recovery:
+
+1. 잘못 발급되거나 유출 의심이 있는 package는 즉시 배포 경로에서 제거한다.
+2. `artifacts/endpoint-odj/<employee_id>/<computer_name>/`와 임시 blob 파일의 접근 권한을 회수하거나 삭제한다.
+3. AD에서 해당 computer object를 disable한다.
+
+```bash
+ansible active_dc -i ansible/inventory/hosts -b -m command \
+  -a "samba-tool computer disable PC-2026070901"
+```
+
+4. 실제 가입이 없고 재사용 계획도 없으면 delete를 별도 승인 후 실행한다.
+
+```bash
+ansible active_dc -i ansible/inventory/hosts -b -m command \
+  -a "samba-tool computer delete PC-2026070901"
+```
+
+5. 회수/삭제 결과를 operations DB 또는 incident/helpdesk 기록에 남긴다.
+
+
+## Endpoint Asset Registration
+
+PC 지급과 join package 발급은 asset record와 연결한다. `scripts/register-endpoint.sh`는 `computer_name`을 endpoint asset name으로 사용하고, owner를 AD username으로 기록한다. metadata에는 employee ID, department, asset tag, serial number, join method, package path, report path를 남긴다.
+
+예시:
+
+```bash
+./scripts/register-endpoint.sh \
+  --employee-id 20260710-001 \
+  --username kim.chulsoo \
+  --computer-name PC-2026071001 \
+  --department Finance \
+  --asset-tag NB-001 \
+  --serial-number SERIAL1234 \
+  --join-method odj \
+  --package-path artifacts/endpoint-odj/20260710-001/PC-2026071001
+```
+
+기록 위치:
+
+- Markdown report: `artifacts/endpoint-assets/<timestamp>-<computer>.md`
+- Asset record: `.codex/mcp/homelab_ops.sqlite` `assets` table, kind `endpoint`
+- Operation record: `.codex/mcp/homelab_ops.sqlite` `operations` table, operation type `endpoint_register`
+
+ODJ 사용 시 raw `odj.blob` 경로가 아니라 package directory를 기록한다. `odj.blob`은 장비별 민감 자료로 취급하고 Git, Notion, Slack, raw log에 저장하지 않는다.
+
+## ODJ Apply Test Client
+
+ODJ 적용 검증은 workgroup 상태 Windows client가 필요하다. `win-mgmt01`은 이미 `toss.lan`에 join된 management host이므로 apply 테스트 대상으로 쓰지 않는다.
+
+현재 기준:
+
+- 상시 유지 Windows management VM은 `win-mgmt01` 하나로 둔다.
+- ODJ apply 검증 편의를 위해 임시 Windows endpoint VM `odj-test01`을 생성했다.
+  - VMID: `110`
+  - CPU/RAM/Disk: 2 cores / 4096 MiB / 64G `local-lvm`
+  - ISO: Windows 11 + VirtIO driver ISO attached
+  - Tags: `windows;endpoint;odj-test`
+  - 상태: Windows 설치 및 ODJ apply 검증 완료, QEMU Guest Agent 기준 IPv4 `192.168.0.77`
+- `odj-test01`은 ODJ apply test client일 뿐 management host가 아니다.
+- 테스트 VM은 GPO/drive mapping 후속 검증이 끝날 때까지 유지한다. 정리는 별도 승인 후 Terraform target destroy로 진행한다.
+- 실제 ODJ blob은 Windows hostname과 AD computer object에 묶이므로, 설치 후 hostname을 발급한 ODJ computer name과 맞춘다.
+
+`odj-test01` 검증 결과:
+
+1. Windows hostname을 `ODJ-VERIFY01`로 맞췄다.
+2. OpenSSH key auth로 automation01에서 원격 preflight를 수행했다.
+3. `ODJ-VERIFY01` package를 임시 복사해 `djoin /requestODJ`를 적용했다.
+4. 재부팅 후 `PartOfDomain=True`, `Domain=toss.lan`을 확인했다.
+5. `nltest /dsgetdc:toss.lan`이 성공했고 AD computer object의 `lastLogon`, `operatingSystem` 값 갱신을 확인했다.
+6. 적용 후 테스트 VM의 임시 ODJ package와 blob 사본은 삭제했다.
+
+정리 절차:
+
+```bash
+terraform -chdir=terraform destroy \
+  -target='module.windows_vm["odj-test01"]'
+```
+
+주의:
+
+- `odj-test01`은 운영 VM이 아니라 검증 VM이다. 현재는 도메인 로그인, GPO, drive mapping 후속 확인을 위해 유지한다.
+- ODJ blob은 다른 장비나 hostname에 재사용하지 않는다.
+- 테스트 실패 또는 중단 시 package를 회수하고 AD computer object를 disable/delete한다.
+- AD computer object disable/delete는 운영 변경이므로 별도 승인 후 실행한다.
+
+
+## Domain Login and GPO Follow-up
+
+ODJ 적용 후 `PartOfDomain=True`가 되어도 사용자 환경이 바로 완성되는 것은 아니다. AD 사용자 로그인, user GPO, SMB drive mapping은 별도 검증한다.
+
+현재 `ODJ-VERIFY01` 후속 확인 기준:
+
+- 도메인 로그인은 성공했다.
+- user GPO에는 `Mapping_DriveZ`, `WallpaperPolicy`, `Screen_Lock`가 내려온다.
+- computer GPO는 기본 `CN=Computers,DC=toss,DC=lan` 위치 때문에 별도 OU/link 설계가 없으면 적용되지 않을 수 있다.
+- wallpaper GPO는 사용자별 로컬 경로나 mapped drive 대신 공용 읽기 가능 UNC 경로를 사용해야 한다. `Z:\toss.png`는 drive mapping 순서와 사용자 세션 상태에 의존하므로 정책 값으로 쓰지 않는다.
+- `Z:` drive mapping 실패는 `storage01` Samba domain member의 winbind/idmap/SPN 상태를 먼저 확인한다.
+- root 소유인 `ansible/roles/storage-policy/templates/smb.conf.j2`는 아직 직접 수정하지 못했으므로, 현 단계의 Samba idmap 적용 경로는 `ansible/playbooks/storage-domain-member.yml`이다.
+- SMB/Kerberos drive mapping을 위해 `STORAGE01$`의 CIFS SPN은 `ansible/playbooks/storage-smb-spn.yml`로 관리한다.
+- dc01 SYSVOL access denied가 재발하면 `samba-tool ntacl sysvolcheck`로 확인하고, 필요 시 dc01에서 `samba-tool ntacl sysvolreset`을 적용한다.
+- WallpaperPolicy는 `ansible/playbooks/gpo-wallpaper-policy.yml`로 `\\storage01\shared\toss.png` UNC 경로를 관리한다. 기존 `Z:\toss.png` 값도 잘못된 값으로 보고 UNC로 되돌린다.
+- WallpaperPolicy playbook은 AD metadata version을 `samba-tool gpo show`로 읽는다. `ldbmodify`가 없는 DC에서는 SYSVOL `GPT.INI`와 실제 `gpupdate` 적용은 확인할 수 있지만 AD `versionNumber` 수정은 RSAT/GPMC 또는 LDAP modify 도구가 준비된 뒤 맞춘다.
+
+read-only 확인 명령:
+
+```cmd
+whoami
+gpresult /r
+net use
+reg query "HKCU\Control Panel\Desktop" /v WallPaper
+```
+
+서버 쪽 확인:
+
+```bash
+ansible storage_server -i ansible/inventory/hosts -b -m command -a "testparm -s"
+ansible storage_server -i ansible/inventory/hosts -b -m shell -a "wbinfo -r it.test"
+ansible active_dc -i ansible/inventory/hosts -b -m command -a "samba-tool spn list STORAGE01$"
+ansible-playbook -i ansible/inventory/hosts ansible/playbooks/storage-domain-member.yml
+ansible-playbook -i ansible/inventory/hosts ansible/playbooks/storage-smb-spn.yml
+```
+
+wallpaper가 즉시 바뀌지 않을 때는 다음을 구분한다.
+
+- `gpupdate /force`가 성공했는지
+- `reg query "HKCU\Control Panel\Desktop" /v WallPaper` 값이 `\\storage01\shared\toss.png`로 바뀌었는지
+- 이미지 UNC를 현재 사용자로 직접 열 수 있는지
+- Explorer가 새 wallpaper를 다시 읽도록 로그오프/로그온 또는 재부팅했는지
+
+GPO registry 값이 맞는데 화면만 그대로면 정책 미적용이 아니라 shell refresh 문제일 수 있다. 하지만 registry 값이 `Z:\toss.png`로 남아 있으면 정책 값 자체가 잘못된 상태다.
+
+## Endpoint Standard App Bootstrap
+
+도메인 가입 PC에서 사용자가 앱을 설치할 때 관리자 인증이 필요한 것은 정상이다. 운영 기준은 AD `Administrator` 비밀번호를 사용자에게 입력하게 하는 것이 아니라, 승인된 표준 앱을 IT가 사전 등록하고 elevated 경로로 배포하는 것이다.
+
+현재 bootstrap 기준:
+
+- Catalog: `endpoint/windows/app-bootstrap/endpoint-app-catalog.json`
+- Installer: `endpoint/windows/app-bootstrap/Install-EndpointApps.ps1`
+- 기본 enabled 앱: `Nextcloud-33.0.7-x64.msi`, `Nextcloud.Talk-windows-x64.msi` 기반 설치
+- `Nextcloud-33.0.7-x64.msi`가 Windows desktop client MSI가 맞는지 확인한다. Nextcloud server package라면 Windows endpoint 앱으로 설치하지 않는다.
+
+IT 담당자 수동 검증:
+
+```powershell
+Set-Location \\storage01\endpoint-apps
+# Files expected here:
+#   Nextcloud-33.0.7-x64.msi
+#   Nextcloud.Talk-windows-x64.msi
+#   Install-EndpointApps.ps1
+#   endpoint-app-catalog.json
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\Install-EndpointApps.ps1 -WhatIfOnly
+.\Install-EndpointApps.ps1
+```
+
+배포 원칙:
+
+- 사용자 PC에 shared domain admin password를 입력하지 않는다.
+- 필요하면 `TOSS\Administrator` 또는 `Administrator@toss.lan` 같은 명시 형식으로 break-glass 검증만 하고, 평시 앱 설치 경로로 쓰지 않는다.
+- 표준 앱은 catalog에 등록하고 detection rule을 둔다.
+- 사용자에게 관리자 권한을 주지 않으려면 GPO computer startup script, scheduled task, 또는 endpoint management 도구가 SYSTEM/elevated context에서 bootstrap을 실행하게 한다.
+- MSI installer를 쓸 때는 `msiexec.exe /i <MSI> /qn /norestart ALLUSERS=1`를 catalog의 `installerType=command`로 등록한다. 현재 catalog는 `\\storage01\endpoint-apps` 아래의 `Nextcloud-33.0.7-x64.msi`와 `Nextcloud.Talk-windows-x64.msi`를 기준으로 둔다.
+- `ansible/playbooks/storage-endpoint-app-installers.yml`은 `/data/shared/endpoint-apps`를 만들고 같은 경로를 읽기 전용 SMB share `\\storage01\endpoint-apps`로 게시한다. `IT_Admins`에는 관리 권한, `Domain Users`와 `Domain Computers`에는 read/traverse 권한을 준다. machine account로 실행되는 SYSTEM/GPO task는 이 dedicated share를 읽고, 기존 `Z:` 공용 share 전체에 `Domain Computers` 접근을 넓히지 않는다.
+
+2026-07-11 검증 결과:
+
+- `ODJ-VERIFY01`에서 `NT AUTHORITY\SYSTEM` scheduled task로 `\\storage01\endpoint-apps` 접근을 확인했다. `Install-EndpointApps.ps1`, `endpoint-app-catalog.json`, 두 MSI 모두 list/read 가능하다.
+- `\\storage01\shared\endpoint-apps`는 계속 실패하는 것이 정상이다. `[shared]` share는 사용자용 공용 share이며 `Domain Computers`를 열지 않는다. SYSTEM/GPO 배포는 반드시 dedicated share `\\storage01\endpoint-apps`를 사용한다.
+- 같은 SYSTEM task로 `\\storage01\endpoint-apps\Install-EndpointApps.ps1`를 실행해 `Nextcloud Desktop Client`와 `Nextcloud Talk Desktop` 설치를 확인했다. detection 결과는 `C:\Program Files\Nextcloud\nextcloud.exe=True`, `C:\Program Files\Nextcloud Talk\Nextcloud Talk.exe=True`였다.
+- 이 검증은 `ODJ-VERIFY01` 테스트 VM 한 대에서 수행했다. 전체 PC 배포는 OU 또는 보안 그룹으로 GPO computer startup/scheduled task 범위를 정한 뒤 적용한다.
+
+### Endpoint App Deployment Scope
+
+전체 도메인 PC에 바로 GPO를 연결하지 않는다. 첫 배포 scope는 AD security group `Endpoint_App_Install_Pilot`으로 제한하고, 검증된 computer account만 명시적으로 추가한다. OU 이동보다 되돌리기 쉽고, `CN=Computers`에 남아 있는 테스트 PC도 GPO security filtering으로 pilot 대상에 포함할 수 있다.
+
+scope 준비 playbook:
+
+```bash
+ansible-playbook -i ansible/inventory/hosts \
+  ansible/playbooks/endpoint-app-deployment-scope.yml \
+  -e '{"endpoint_app_deployment_computers":["ODJ-VERIFY01"]}'
+```
+
+이 playbook은 `Endpoint_App_Install_Pilot` 그룹을 만들고, 지정한 computer account가 존재하는지 확인한 뒤 `<COMPUTER>$` 계정을 그룹에 추가한다. AD group 생성과 membership 변경은 운영 변경이므로 실행 전 대상 computer 목록과 rollback을 확인한다.
+
+rollback:
+
+```bash
+ansible active_dc -i ansible/inventory/hosts -b -m command \
+  -a "samba-tool group removemembers Endpoint_App_Install_Pilot ODJ-VERIFY01$"
+```
+
+GPO 또는 Scheduled Tasks preference를 만들 때는 이 그룹으로 security filtering을 걸고, computer context에서 다음 명령만 실행하게 한다.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File \\storage01\endpoint-apps\Install-EndpointApps.ps1
+```
+
+적용 후 확인:
+
+```powershell
+Test-Path 'C:\Program Files\Nextcloud\nextcloud.exe'
+Test-Path 'C:\Program Files\Nextcloud Talk\Nextcloud Talk.exe'
+Get-ChildItem 'C:\ProgramData\Toss\EndpointApps\Logs'
+```
+
+### Pilot Endpoint Scheduled Task
+
+GPO security filtering을 수작업으로 바로 구성하기 전, pilot endpoint에는 직접 SYSTEM startup scheduled task를 배포해 bootstrap 동작을 검증한다. 대상은 inventory의 `windows_endpoint_pilot` group으로 제한한다. 현재 등록 대상은 `ODJ-VERIFY01` 하나다.
+
+```bash
+ansible-playbook -i ansible/inventory/hosts \
+  ansible/playbooks/endpoint-app-bootstrap-task.yml \
+  -e endpoint_app_run_now=true
+```
+
+이 playbook은 `endpoint/windows/app-bootstrap/Configure-EndpointAppTask.ps1`를 endpoint의 `C:\ProgramData\Toss\EndpointApps\`에 복사하고, `Toss_EndpointAppBootstrap` startup task를 `SYSTEM` 계정으로 만든다. task command는 다음 경로만 실행한다.
+
+```powershell
+C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File \\storage01\endpoint-apps\Install-EndpointApps.ps1
+```
+
+2026-07-12 pilot 실행 결과:
+
+- 대상: `ODJ-VERIFY01`
+- task: `Toss_EndpointAppBootstrap`
+- `lastTaskResult=0`
+- detection: `NextcloudDesktop=True`, `NextcloudTalk=True`
+- latest log: `C:\ProgramData\Toss\EndpointApps\Logs\endpoint-apps-20260712-134154.log`
+- 재실행 검증: `endpoint_app_run_now=false` 기준 `changed=0`, `failed=0`
+
+rollback:
+
+```powershell
+schtasks.exe /Delete /TN Toss_EndpointAppBootstrap /F
+Remove-Item -LiteralPath C:\ProgramData\Toss\EndpointApps\Configure-EndpointAppTask.ps1 -Force
+```
+
+이 방식은 pilot 검증용이다. 여러 PC로 확장할 때는 `Endpoint_App_Install_Pilot` group 기준 GPO/Scheduled Tasks preference 또는 endpoint management 도구로 전환한다.
+
+## SMB Department Folder ACLs
+
+`Z:` drive는 `\\storage01\shared` 전체를 가리킨다. Nextcloud의 `/HR`, `/IT` external storage 제한은 Nextcloud 앱 내부 권한이고, Windows SMB에서 `Z:\departments`를 탐색하는 권한과는 별개다.
+
+의도한 UX:
+
+- `Z:\` 루트: 공용 파일과 `departments` 폴더가 보인다.
+- `Z:\departments`: 부서 폴더 목록을 볼 수 있다.
+- `Z:\departments\hr`: `HR_Staff`만 접근한다.
+- `Z:\departments\it`: `IT_Admins`만 접근한다.
+- `Z:\departments\finance`: `Finance_Staff`만 접근한다.
+- `Z:\departments\security`: `Security_Team`만 접근한다.
+
+현재 점검 결과 `departments`와 하위 폴더는 `www-data:www-data 0770`이라 SMB 도메인 사용자가 traverse할 수 없다. `ansible/playbooks/storage-department-smb-acl.yml`은 `acl` 패키지를 설치하고 POSIX ACL을 AD 그룹 기준으로 맞춘다. 이 playbook은 실제 파일 접근권한을 바꾸므로 적용 전 사용자 승인을 받는다.
 
 ## Definition of Done
 

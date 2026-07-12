@@ -22,9 +22,12 @@ https://it-onboarding.example.local/endpoint/windows/ad-join?employee_id=<사번
 4. AD 계정 정보를 입력한다.
 5. PC가 재부팅되면 도메인 계정으로 로그인한다.
 
+ODJ v2 package를 받은 경우에는 AD credential 입력 단계가 없다. package 안의 `run-as-admin.cmd`를 관리자 권한으로 실행하면 장비별 ODJ blob을 적용하고 재부팅한다.
+
 주의:
 
 - 스크립트 안에는 비밀번호가 들어 있지 않다.
+- ODJ package의 `odj.blob`은 해당 PC에만 써야 하는 민감 파일이므로 다른 사람에게 전달하지 않는다.
 - 비밀번호를 메신저나 캡처 화면으로 공유하지 않는다.
 - DNS 확인에 실패하면 IT팀에 오류 화면과 현재 네트워크 정보를 전달한다.
 

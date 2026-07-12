@@ -44,6 +44,10 @@ function Get-SafeComputerName([string]$EmployeeId) {
 
 Assert-Administrator
 
+if ($DnsServers.Count -eq 1 -and $DnsServers[0] -match ',') {
+    $DnsServers = $DnsServers[0].Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+}
+
 if ([string]::IsNullOrWhiteSpace($ComputerName)) {
     $ComputerName = Get-SafeComputerName -EmployeeId $EmployeeId
 }

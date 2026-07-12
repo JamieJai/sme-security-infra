@@ -1,0 +1,84 @@
+---
+- name: Prepare endpoint app deployment scope
+  hosts: active_dc
+  become: yes
+  gather_facts: false
+
+  vars:
+    endpoint_app_deployment_group: Endpoint_App_Install_Pilot
+    endpoint_app_deployment_computers: []
+
+  tasks:
+    - name: Validate endpoint app deployment scope variables
+      ansible.builtin.assert:
+        that:
+          - endpoint_app_deployment_group is match('^[A-Za-z0-9_.-]{1,64}$')
+          - endpoint_app_deployment_computers is iterable
+        fail_msg: "Use a simple AD group name and pass endpoint_app_deployment_computers as a list."
+
+    - name: Validate endpoint computer names
+      ansible.builtin.assert:
+        that:
+          - item is match('^[A-Z0-9][A-Z0-9-]{0,14}$')
+        fail_msg: "Computer names must be uppercase NetBIOS names without a trailing dollar sign."
+      loop: "{{ endpoint_app_deployment_computers }}"
+
+    - name: Check whether endpoint app deployment group exists
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - group
+          - show
+          - "{{ endpoint_app_deployment_group }}"
+      register: endpoint_app_group_lookup
+      failed_when: false
+      changed_when: false
+
+    - name: Create endpoint app deployment group
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - group
+          - add
+          - "{{ endpoint_app_deployment_group }}"
+      when: endpoint_app_group_lookup.rc != 0
+
+    - name: Verify endpoint computer accounts exist
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - computer
+          - show
+          - "{{ item }}"
+      loop: "{{ endpoint_app_deployment_computers }}"
+      changed_when: false
+
+    - name: Add endpoint computers to deployment group
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - group
+          - addmembers
+          - "{{ endpoint_app_deployment_group }}"
+          - "{{ item }}$"
+      loop: "{{ endpoint_app_deployment_computers }}"
+      register: endpoint_app_group_add
+      changed_when: "'Added members' in endpoint_app_group_add.stdout"
+      failed_when:
+        - endpoint_app_group_add.rc != 0
+        - "'already a member' not in endpoint_app_group_add.stderr"
+        - "'Attribute member already exists' not in endpoint_app_group_add.stderr"
+
+    - name: Show endpoint app deployment group summary
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - group
+          - show
+          - "{{ endpoint_app_deployment_group }}"
+      register: endpoint_app_group_summary
+      changed_when: false
+
+    - name: Print endpoint app deployment group summary
+      ansible.builtin.debug:
+        var: endpoint_app_group_summary.stdout_lines

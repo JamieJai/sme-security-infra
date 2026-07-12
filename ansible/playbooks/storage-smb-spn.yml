@@ -1,0 +1,33 @@
+---
+- name: Ensure storage SMB SPNs exist
+  hosts: active_dc
+  become: yes
+  gather_facts: false
+
+  vars:
+    storage_computer_account: STORAGE01$
+    storage_smb_spns:
+      - CIFS/storage01
+      - CIFS/storage01.toss.lan
+
+  tasks:
+    - name: Read current storage computer SPNs
+      ansible.builtin.command: samba-tool spn list "{{ storage_computer_account }}"
+      register: storage_current_spns
+      changed_when: false
+
+    - name: Add missing storage CIFS SPNs
+      ansible.builtin.command: samba-tool spn add "{{ item }}" "{{ storage_computer_account }}"
+      loop: "{{ storage_smb_spns }}"
+      when: item not in storage_current_spns.stdout
+
+    - name: Re-read storage computer SPNs
+      ansible.builtin.command: samba-tool spn list "{{ storage_computer_account }}"
+      register: storage_verified_spns
+      changed_when: false
+
+    - name: Verify required CIFS SPNs are present
+      ansible.builtin.assert:
+        that: "item in storage_verified_spns.stdout"
+        fail_msg: "Missing required SPN {{ item }} on {{ storage_computer_account }}"
+      loop: "{{ storage_smb_spns }}"

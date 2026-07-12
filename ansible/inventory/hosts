@@ -22,5 +22,11 @@ storage01 ansible_host=192.168.0.70 ansible_user=sysadmin ansible_ssh_private_ke
 [mail_server]
 mail01 ansible_host=192.168.0.80 ansible_user=sysadmin
 
+[windows_management]
+win-mgmt01 ansible_host=192.168.0.76 ansible_user=localadmin ansible_connection=ssh ansible_shell_type=powershell ansible_ssh_common_args='-o ServerAliveInterval=30'
+
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
+
+[windows_endpoint_pilot]
+odj-verify01 ansible_host=192.168.0.77 ansible_user=localadmin ansible_connection=ssh ansible_shell_type=powershell ansible_ssh_common_args='-o ServerAliveInterval=30'

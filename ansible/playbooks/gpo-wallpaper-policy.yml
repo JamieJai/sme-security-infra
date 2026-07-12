@@ -1,0 +1,112 @@
+---
+- name: Point WallpaperPolicy to a shared UNC path
+  hosts: primary_dc:active_dc
+  become: yes
+  gather_facts: false
+
+  vars:
+    wallpaper_gpo_guid: "{5038E162-6AE8-4523-A8AB-129520C559EA}"
+    wallpaper_registry_xml: "/var/lib/samba/sysvol/toss.lan/Policies/{{ wallpaper_gpo_guid }}/User/Preferences/Registry/Registry.xml"
+    wallpaper_gpt_ini: "/var/lib/samba/sysvol/toss.lan/Policies/{{ wallpaper_gpo_guid }}/GPT.INI"
+    wallpaper_old_values:
+      - 'C:\Users\Administrator.TOSS\Downloads\toss.png'
+      - 'Z:\toss.png'
+      - 'Z:/toss.png'
+    wallpaper_new_value: '\\storage01\shared\toss.png'
+    wallpaper_gpo_version: 1245200
+
+  tasks:
+    - name: Update WallpaperPolicy registry preference path
+      ansible.builtin.replace:
+        path: "{{ wallpaper_registry_xml }}"
+        regexp: '{{ item | regex_escape }}'
+        replace: '\\\\storage01\\shared\\toss.png'
+        backup: yes
+      loop: "{{ wallpaper_old_values }}"
+
+    - name: Check WallpaperPolicy GPT.INI version
+      ansible.builtin.shell: |
+        grep -a '^Version={{ wallpaper_gpo_version }}' "{{ wallpaper_gpt_ini }}"
+      register: wallpaper_gpt_version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Update WallpaperPolicy GPT.INI version byte-safely
+      ansible.builtin.shell: |
+        cp "{{ wallpaper_gpt_ini }}" "{{ wallpaper_gpt_ini }}.bak.$(date +%Y%m%d%H%M%S)"
+        perl -0pi -e 's/Version=\d+/Version={{ wallpaper_gpo_version }}/' "{{ wallpaper_gpt_ini }}"
+      when: wallpaper_gpt_version_check.rc != 0
+
+    - name: Verify WallpaperPolicy SYSVOL values
+      ansible.builtin.shell: |
+        set -eu
+        grep -F 'value="{{ wallpaper_new_value }}"' "{{ wallpaper_registry_xml }}"
+        grep -F 'Version={{ wallpaper_gpo_version }}' "{{ wallpaper_gpt_ini }}"
+      changed_when: false
+
+- name: Update WallpaperPolicy AD version metadata
+  hosts: active_dc
+  become: yes
+  gather_facts: false
+
+  vars:
+    wallpaper_gpo_guid: "{5038E162-6AE8-4523-A8AB-129520C559EA}"
+    wallpaper_gpo_dn: "CN={{ wallpaper_gpo_guid }},CN=Policies,CN=System,DC=toss,DC=lan"
+    wallpaper_gpo_version: 1245200
+    wallpaper_version_ldif: /tmp/wallpaper-gpo-version.ldif
+
+  tasks:
+    - name: Read current WallpaperPolicy AD version
+      ansible.builtin.shell: |
+        set -o pipefail
+        samba-tool gpo show "{{ wallpaper_gpo_guid }}" |
+          awk -F: '/^version[[:space:]]*:/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}'
+      args:
+        executable: /bin/bash
+      register: wallpaper_ad_version
+      changed_when: false
+
+    - name: Verify current WallpaperPolicy AD version was readable
+      ansible.builtin.assert:
+        that:
+          - wallpaper_ad_version.stdout | trim | length > 0
+        fail_msg: "Could not read WallpaperPolicy AD version from samba-tool gpo show output."
+
+    - name: Check ldbmodify availability
+      ansible.builtin.shell: command -v ldbmodify
+      register: wallpaper_ldbmodify
+      changed_when: false
+      failed_when: false
+
+    - name: Write WallpaperPolicy AD version LDIF
+      ansible.builtin.copy:
+        dest: "{{ wallpaper_version_ldif }}"
+        mode: "0600"
+        content: |
+          dn: {{ wallpaper_gpo_dn }}
+          changetype: modify
+          replace: versionNumber
+          versionNumber: {{ wallpaper_gpo_version }}
+      when:
+        - wallpaper_ldbmodify.rc == 0
+        - wallpaper_ad_version.stdout | trim != wallpaper_gpo_version | string
+
+    - name: Update WallpaperPolicy AD version
+      ansible.builtin.command: "ldbmodify -H /var/lib/samba/private/sam.ldb {{ wallpaper_version_ldif }}"
+      when:
+        - wallpaper_ldbmodify.rc == 0
+        - wallpaper_ad_version.stdout | trim != wallpaper_gpo_version | string
+
+    - name: Verify WallpaperPolicy AD version when ldbmodify is available
+      ansible.builtin.command: "samba-tool gpo show {{ wallpaper_gpo_guid }}"
+      register: wallpaper_gpo_show
+      changed_when: false
+      failed_when: "'version      : ' ~ (wallpaper_gpo_version | string) not in wallpaper_gpo_show.stdout"
+      when: wallpaper_ldbmodify.rc == 0
+
+    - name: Note WallpaperPolicy AD version was not changed
+      ansible.builtin.debug:
+        msg: "ldbmodify is not installed; SYSVOL GPT.INI was updated and gpupdate /force verified the policy, but AD versionNumber remains {{ wallpaper_ad_version.stdout | trim }}."
+      when:
+        - wallpaper_ldbmodify.rc != 0
+        - wallpaper_ad_version.stdout | trim != wallpaper_gpo_version | string

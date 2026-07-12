@@ -13,7 +13,9 @@
 | 현재 상태를 점검한다 | [operations/verification-runbook.md](operations/verification-runbook.md) |
 | MCP 기반 IT Manager 자동화 로드맵을 본다 | [operations/mcp-roadmap.md](operations/mcp-roadmap.md) |
 | IT Manager 플랫폼 방향성을 본다 | [operations/it-manager-platform-roadmap.md](operations/it-manager-platform-roadmap.md) |
+| Endpoint onboarding 고도화 목표를 본다 | [operations/endpoint-onboarding-vision.md](operations/endpoint-onboarding-vision.md) |
 | 신입사원 온보딩 운영 절차를 본다 | [operations/employee-onboarding-runbook.md](operations/employee-onboarding-runbook.md) |
+| 사용자 문의/장애 진단 시나리오를 본다 | [operations/helpdesk-scenarios.md](operations/helpdesk-scenarios.md) |
 | 신규 입사자용 IT 사용 가이드를 본다 | [getting-started/employee-it-onboarding.md](getting-started/employee-it-onboarding.md) |
 | 전체 자동화 목표를 본다 | [getting-started/full-rebuild-roadmap.md](getting-started/full-rebuild-roadmap.md) |
 | Ansible playbook 목록과 위험도를 확인한다 | [reference/ansible-playbook-catalog.md](reference/ansible-playbook-catalog.md) |
@@ -54,6 +56,18 @@ docs/
 
 ```bash
 ./scripts/full-apply.sh
+```
+
+Helpdesk 진단 리포트 생성:
+
+```bash
+./scripts/helpdesk-diagnose.sh --scenario domain-join --computer-name PC-2026071001
+```
+
+Endpoint 자산 등록:
+
+```bash
+./scripts/register-endpoint.sh --employee-id 20260710-001 --username kim.chulsoo --computer-name PC-2026071001
 ```
 
 Wazuh agent 설치/재배포:

@@ -1,0 +1,57 @@
+---
+- name: Configure endpoint app bootstrap scheduled task
+  hosts: windows_endpoint_pilot
+  gather_facts: false
+
+  vars:
+    endpoint_app_task_name: Toss_EndpointAppBootstrap
+    endpoint_app_task_script: '\\storage01\endpoint-apps\Install-EndpointApps.ps1'
+    endpoint_app_remote_dir: 'C:/ProgramData/Toss/EndpointApps'
+    endpoint_app_remote_config_script: 'C:/ProgramData/Toss/EndpointApps/Configure-EndpointAppTask.ps1'
+    endpoint_app_local_config_script: '{{ playbook_dir }}/../../endpoint/windows/app-bootstrap/Configure-EndpointAppTask.ps1'
+    endpoint_app_run_now: false
+
+  tasks:
+    - name: Ensure endpoint app local automation directory exists
+      ansible.builtin.raw: >-
+        powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass
+        -Command "New-Item -ItemType Directory -Path 'C:\ProgramData\Toss\EndpointApps' -Force | Out-Null"
+      changed_when: false
+
+    - name: Read local endpoint app task configurator hash
+      ansible.builtin.stat:
+        path: "{{ endpoint_app_local_config_script }}"
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      register: endpoint_app_local_config_stat
+      changed_when: false
+
+    - name: Read remote endpoint app task configurator hash
+      ansible.builtin.raw: >-
+        powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
+        -Command "if (Test-Path -LiteralPath '{{ endpoint_app_remote_config_script }}') { (Get-FileHash -Algorithm SHA256 -LiteralPath '{{ endpoint_app_remote_config_script }}').Hash.ToLower() }"
+      register: endpoint_app_remote_config_hash
+      changed_when: false
+
+    - name: Copy endpoint app task configurator to endpoint
+      ansible.builtin.command:
+        cmd: >-
+          scp -q -o BatchMode=yes
+          {{ endpoint_app_local_config_script }}
+          {{ ansible_user | default('localadmin') }}@{{ ansible_host | default(inventory_hostname) }}:{{ endpoint_app_remote_config_script }}
+      delegate_to: localhost
+      when: endpoint_app_local_config_stat.stat.checksum not in (endpoint_app_remote_config_hash.stdout | lower)
+
+    - name: Configure endpoint app bootstrap task
+      ansible.builtin.raw: >-
+        powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
+        -File C:\ProgramData\Toss\EndpointApps\Configure-EndpointAppTask.ps1
+        -TaskName {{ endpoint_app_task_name }}
+        -BootstrapScript {{ endpoint_app_task_script }}
+        {{ endpoint_app_run_now | bool | ternary('-RunNow', '') }}
+      register: endpoint_app_task_result
+      changed_when: "'\"changed\":true' in endpoint_app_task_result.stdout"
+
+    - name: Print endpoint app bootstrap task result
+      ansible.builtin.debug:
+        var: endpoint_app_task_result.stdout_lines

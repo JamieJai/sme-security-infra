@@ -1,0 +1,57 @@
+---
+- name: Repair storage Samba domain member mapping
+  hosts: storage_server
+  become: yes
+  gather_facts: false
+
+  vars:
+    storage_test_user: it.test
+    storage_domain_group: TOSS\Domain Users
+
+  tasks:
+    - name: Ensure Samba domain member idmap settings are present
+      ansible.builtin.blockinfile:
+        path: /etc/samba/smb.conf
+        insertafter: ^\[global\]
+        marker: "# {mark} ANSIBLE MANAGED BLOCK storage domain member"
+        block: |
+          winbind refresh tickets = yes
+          template shell = /bin/bash
+          template homedir = /home/%U
+          idmap config * : backend = tdb
+          idmap config * : range = 3000-7999
+          idmap config TOSS : backend = rid
+          idmap config TOSS : range = 10000-999999
+      notify: Restart Samba domain member services
+
+    - name: Validate Samba config
+      ansible.builtin.command: testparm -s
+      changed_when: false
+
+    - name: Apply Samba changes before winbind verification
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify winbind resolves the test user groups
+      ansible.builtin.command:
+        argv:
+          - wbinfo
+          - -r
+          - "{{ storage_test_user }}"
+      changed_when: false
+
+    - name: Verify winbind resolves the domain users group
+      ansible.builtin.command:
+        argv:
+          - wbinfo
+          - --group-info
+          - "{{ storage_domain_group }}"
+      changed_when: false
+
+  handlers:
+    - name: Restart Samba domain member services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - smbd
+        - winbind
