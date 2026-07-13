@@ -122,7 +122,7 @@ ODJ blob은 단순 파일이 아니라 도메인 가입 권한을 내포한 민�
 - **Operations**: Ansible, shell script, PowerShell - 발급, 적용, 검증 자동화
 - **Evidence**: SQLite operations DB, Markdown docs - 실행 결과와 운영 증적
 - **Notification/Knowledge**: Slack, Notion - 운영 알림과 승인된 문서 보관
-- **Security Visibility**: Wazuh - 향후 endpoint 인증/보안 이벤트 관찰
+- **Security Visibility**: Wazuh - endpoint onboarding 단계에서 agent를 설치하고 인증/보안 이벤트를 관찰
 
 목표 흐름은 다음과 같다.
 
@@ -131,6 +131,7 @@ ODJ blob은 단순 파일이 아니라 도메인 가입 권한을 내포한 민�
   -> asset tag / employee_id / computer_name 매핑
   -> 필수 앱 설치 및 네트워크 preflight
   -> AD Join v1 또는 ODJ v2 package 적용
+  -> Wazuh agent 설치 및 enrollment
   -> 재부팅
   -> AD 사용자 로그인
   -> Keycloak/Nextcloud/Mail 접근 확인

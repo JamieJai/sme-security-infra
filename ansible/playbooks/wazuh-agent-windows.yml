@@ -1,0 +1,64 @@
+---
+- name: Ensure Wazuh Windows agent group exists
+  hosts: wazuh_server
+  become: true
+  gather_facts: false
+  vars:
+    wazuh_windows_agent_group: "windows"
+  tasks:
+    - name: Create Wazuh Windows agent group
+      ansible.builtin.command:
+        argv:
+          - /var/ossec/bin/agent_groups
+          - -a
+          - -g
+          - "{{ wazuh_windows_agent_group }}"
+          - -q
+      register: wazuh_windows_group_create
+      changed_when: "'created' in wazuh_windows_group_create.stdout"
+      failed_when:
+        - wazuh_windows_group_create.rc != 0
+        - "'already exists' not in (wazuh_windows_group_create.stdout + wazuh_windows_group_create.stderr)"
+
+- name: Install and verify Wazuh agent on Windows endpoints
+  hosts: windows_management:windows_endpoint_pilot
+  become: false
+  gather_facts: false
+  vars:
+    wazuh_manager_ip: "192.168.0.30"
+    wazuh_windows_agent_version: "4.10.4-1"
+    wazuh_windows_agent_msi: "wazuh-agent-{{ wazuh_windows_agent_version }}.msi"
+    wazuh_windows_agent_url: "https://packages.wazuh.com/4.x/windows/{{ wazuh_windows_agent_msi }}"
+    wazuh_windows_agent_group: "windows"
+    wazuh_windows_agent_name: "{{ inventory_hostname | upper }}"
+  tasks:
+    - name: Verify Windows endpoint is reachable
+      ansible.windows.win_ping:
+
+    - name: Install Wazuh agent package
+      ansible.windows.win_package:
+        path: "{{ wazuh_windows_agent_url }}"
+        arguments: >-
+          WAZUH_MANAGER="{{ wazuh_manager_ip }}"
+          WAZUH_REGISTRATION_SERVER="{{ wazuh_manager_ip }}"
+          WAZUH_AGENT_NAME="{{ wazuh_windows_agent_name }}"
+          WAZUH_AGENT_GROUP="{{ wazuh_windows_agent_group }}"
+        creates_service: WazuhSvc
+        state: present
+
+    - name: Ensure Wazuh agent service is running
+      ansible.windows.win_service:
+        name: WazuhSvc
+        start_mode: auto
+        state: started
+
+    - name: Read Wazuh agent service state
+      ansible.windows.win_service_info:
+        name: WazuhSvc
+      register: wazuh_windows_service
+
+    - name: Assert Wazuh agent service is running
+      ansible.builtin.assert:
+        that:
+          - wazuh_windows_service.services | length == 1
+          - wazuh_windows_service.services[0].state == 'started'

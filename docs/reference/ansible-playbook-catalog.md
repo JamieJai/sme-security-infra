@@ -34,6 +34,7 @@
 | Wazuh | `playbooks/wazuh-apt-repository.yml` | Wazuh apt repository signed-by keyring 관리 |
 | Wazuh | `playbooks/wazuh-agent-deploy.yml` | Wazuh agent 배포 |
 | Wazuh | `playbooks/wazuh-agent-logs.yml` | 역할별 로그 수집 |
+| Wazuh | `playbooks/wazuh-agent-windows.yml` | Windows endpoint Wazuh agent 설치 및 서비스 검증 |
 | Wazuh | `playbooks/wazuh-custom-detections.yml` | Custom decoder/rule 배포 및 fixture test |
 | Wazuh | `playbooks/wazuh-platform-hardening.yml` | Version hold, API bind, UFW, TLS 기준 적용 |
 | Wazuh | `playbooks/wazuh-index-lifecycle.yml` | 30일 retention, 일일 snapshot 및 90일 정리 |
@@ -56,6 +57,7 @@
 | `playbooks/ad-postconfig.yml` | AD 후속 구성 |
 | `playbooks/endpoint-app-deployment-scope.yml` | Endpoint 표준 앱 배포 pilot 보안 그룹과 computer membership 준비 |
 | `playbooks/endpoint-app-bootstrap-task.yml` | Pilot Windows endpoint에 SYSTEM startup task로 표준 앱 bootstrap 배포 |
+| `playbooks/endpoint-onboarding.yml` | Windows endpoint onboarding 후 Wazuh security visibility 적용 |
 | `playbooks/rotate-ad-administrator.yml` | AD Administrator 암호 회전 |
 | `playbooks/nextcloud-tls.yml` | Nextcloud TLS 인증서 교체 |
 

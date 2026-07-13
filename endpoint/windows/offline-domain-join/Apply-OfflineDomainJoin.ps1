@@ -19,6 +19,11 @@ param(
     [string]$BlobPath = "$PSScriptRoot\odj.blob",
     [string[]]$DnsServers = @(),
     [switch]$SkipDnsChange,
+    [string]$WazuhManager = "192.168.0.30",
+    [string]$WazuhAgentVersion = "4.10.4-1",
+    [string]$WazuhAgentGroup = "windows",
+    [string]$WazuhMsiPath = "",
+    [switch]$SkipWazuhInstall,
     [switch]$NoRestart
 )
 
@@ -36,6 +41,54 @@ function Assert-ComputerName([string]$Name) {
     if ($Name.Length -gt 15 -or $Name -notmatch '^[A-Za-z0-9][A-Za-z0-9-]{0,14}$') {
         throw "ComputerName must be 1-15 characters and contain only letters, numbers, and hyphen."
     }
+}
+
+function Install-WazuhAgent {
+    if ($SkipWazuhInstall) {
+        Write-Host "Wazuh agent installation skipped."
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($WazuhManager)) {
+        throw "WazuhManager must not be empty unless -SkipWazuhInstall is used."
+    }
+
+    $service = Get-Service -Name WazuhSvc -ErrorAction SilentlyContinue
+    if (-not $service) {
+        $msiPath = $WazuhMsiPath
+        if ([string]::IsNullOrWhiteSpace($msiPath)) {
+            $downloadDir = Join-Path $env:ProgramData "Toss\Wazuh"
+            New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
+            $msiPath = Join-Path $downloadDir "wazuh-agent-$WazuhAgentVersion.msi"
+            if (-not (Test-Path -LiteralPath $msiPath)) {
+                $url = "https://packages.wazuh.com/4.x/windows/wazuh-agent-$WazuhAgentVersion.msi"
+                Write-Host "Downloading Wazuh agent from $url"
+                Invoke-WebRequest -Uri $url -OutFile $msiPath -UseBasicParsing
+            }
+        }
+
+        if (-not (Test-Path -LiteralPath $msiPath)) {
+            throw "Wazuh MSI was not found: $msiPath"
+        }
+
+        Write-Host "Installing Wazuh agent for manager $WazuhManager as $ComputerName"
+        $arguments = "/i `"$msiPath`" /qn WAZUH_MANAGER=`"$WazuhManager`" WAZUH_REGISTRATION_SERVER=`"$WazuhManager`" WAZUH_AGENT_NAME=`"$ComputerName`" WAZUH_AGENT_GROUP=`"$WazuhAgentGroup`""
+        $process = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
+        if ($process.ExitCode -notin @(0, 3010)) {
+            throw "Wazuh agent installer failed with exit code $($process.ExitCode)."
+        }
+    }
+    else {
+        Write-Host "Wazuh agent service already exists. Ensuring it is running."
+    }
+
+    Start-Service -Name WazuhSvc -ErrorAction Stop
+    Start-Sleep -Seconds 3
+    $service = Get-Service -Name WazuhSvc -ErrorAction Stop
+    if ($service.Status -ne 'Running') {
+        throw "WazuhSvc is not running after installation. Current status: $($service.Status)."
+    }
+    Write-Host "Wazuh agent service is running."
 }
 
 Assert-Administrator
@@ -82,6 +135,8 @@ try {
 catch {
     Write-Warning "DNS resolution failed for $DomainName. ODJ can still be applied, but domain login may fail after reboot until DNS is corrected."
 }
+
+Install-WazuhAgent
 
 & $djoin /requestODJ /loadfile $BlobPath /windowspath $env:SystemRoot /localos
 if ($LASTEXITCODE -ne 0) {

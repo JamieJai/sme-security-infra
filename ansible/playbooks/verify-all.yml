@@ -19,8 +19,8 @@
         chdir: "{{ terraform_dir }}"
       changed_when: false
 
-- name: Verify host reachability and operating system health
-  hosts: all
+- name: Verify Linux host reachability and operating system health
+  hosts: linux_managed:wazuh_server
   become: true
   gather_facts: false
   tags: [baseline]
@@ -44,6 +44,24 @@
         cmd: systemctl is-active wazuh-agent
       changed_when: false
       when: inventory_hostname not in groups['wazuh_server']
+
+- name: Verify Windows endpoint reachability and Wazuh agent
+  hosts: windows_management:windows_endpoint_pilot
+  become: false
+  gather_facts: false
+  tags: [baseline, wazuh, windows]
+  tasks:
+    - name: Verify Ansible connectivity
+      ansible.windows.win_ping:
+    - name: Read Wazuh agent service state
+      ansible.windows.win_service_info:
+        name: WazuhSvc
+      register: wazuh_windows_service
+    - name: Verify Wazuh agent service is running
+      ansible.builtin.assert:
+        that:
+          - wazuh_windows_service.services | length == 1
+          - wazuh_windows_service.services[0].state == 'started'
 
 - name: Verify Samba AD health
   hosts: primary_dc:secondary_dc

@@ -1,6 +1,6 @@
 ---
 - name: Configure role-based Wazuh agent log collection
-  hosts: all:!wazuh_server
+  hosts: linux_managed
   become: true
 
   vars:

@@ -156,19 +156,24 @@ ansible-playbook -i inventory/hosts playbooks/windows-odj-provision.yml \
 
 패키지 생성 예시:
 
+기본값은 Wazuh MSI를 `packages.wazuh.com`에서 내려받는다. 인터넷이 제한된 PC에는 `--wazuh-msi-file /secure/path/wazuh-agent-4.10.4-1.msi`로 MSI를 package에 포함한다.
+
 ```bash
 ./scripts/generate-windows-odj-package.sh \
   --employee-id 20260709-001 \
   --computer-name PC-2026070901 \
-  --blob-file artifacts/endpoint-odj-blobs/PC-2026070901.blob
+  --blob-file artifacts/endpoint-odj-blobs/PC-2026070901.blob \
+  --wazuh-manager 192.168.0.30 \
+  --wazuh-agent-version 4.10.4-1
 ```
 
 사용자 PC 적용:
 
 1. 보호된 채널로 ODJ package를 전달한다.
 2. 사용자 또는 IT 담당자가 로컬 관리자 권한으로 `run-as-admin.cmd`를 실행한다.
-3. 재부팅 후 AD 계정으로 로그인한다.
-4. 실패하면 package directory, 실행 시각, 오류 메시지, 현재 DNS 설정을 IT팀에 전달한다.
+3. 스크립트가 DNS를 설정하고 Wazuh agent 설치/서비스 시작을 검증한 뒤 ODJ를 적용한다.
+4. 재부팅 후 AD 계정으로 로그인한다.
+5. 실패하면 package directory, 실행 시각, 오류 메시지, 현재 DNS 설정, `WazuhSvc` 상태를 IT팀에 전달한다.
 
 Recovery:
 
@@ -435,12 +440,14 @@ v1 완료 기준:
 - 사번 기반 AD Join package 생성 가능
 - package에 secret 미포함
 - Windows 실행 script가 관리자 권한, DNS, domain resolution을 검증
-- 사용자 가이드에 DNS/권한/재부팅/오류 보고 기준 포함
-- 온보딩 workflow에서 PC AD Join 수동 후속 작업으로 연결
+- Windows 실행 script가 Wazuh agent를 설치하고 `WazuhSvc` 시작까지 검증
+- 사용자 가이드에 DNS/권한/Wazuh enrollment/재부팅/오류 보고 기준 포함
+- 온보딩 workflow에서 PC AD Join과 Wazuh visibility를 같은 완료 기준으로 연결
 
 v2 완료 기준:
 
 - Offline Domain Join package 생성 자동화
+- ODJ package가 Wazuh agent 설치와 enrollment를 기본 수행
 - package 다운로드 경로 인증/인가
 - SQLite operations record 저장
 - Slack 알림

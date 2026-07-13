@@ -7,6 +7,10 @@ OUTPUT_DIR="$ROOT_DIR/artifacts/endpoint-odj"
 OPS_DB="$ROOT_DIR/.codex/mcp/homelab_ops.sqlite"
 DOMAIN_NAME="${DOMAIN_NAME:-toss.lan}"
 DNS_SERVERS="${DNS_SERVERS:-192.168.0.21,192.168.0.20}"
+WAZUH_MANAGER="${WAZUH_MANAGER:-192.168.0.30}"
+WAZUH_AGENT_VERSION="${WAZUH_AGENT_VERSION:-4.10.4-1}"
+WAZUH_AGENT_GROUP="${WAZUH_AGENT_GROUP:-windows}"
+WAZUH_MSI_FILE=""
 EMPLOYEE_ID=""
 COMPUTER_NAME=""
 BLOB_FILE=""
@@ -18,10 +22,15 @@ Usage:
     --employee-id EMPLOYEE_ID \
     --computer-name COMPUTER_NAME \
     --blob-file PATH \
+    [--wazuh-manager IP_OR_HOST] \
+    [--wazuh-agent-version VERSION] \
+    [--wazuh-agent-group GROUP] \
+    [--wazuh-msi-file PATH] \
     [--output-dir DIR]
 
 Packages a pre-generated Offline Domain Join blob with the Windows apply
-script. The blob is sensitive and must be distributed only through a protected
+script. The apply script installs and enrolls the Wazuh agent before applying
+ODJ. The blob is sensitive and must be distributed only through a protected
 per-employee or per-device channel.
 USAGE
 }
@@ -33,12 +42,16 @@ die() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --employee-id|--computer-name|--blob-file|--output-dir)
+    --employee-id|--computer-name|--blob-file|--wazuh-manager|--wazuh-agent-version|--wazuh-agent-group|--wazuh-msi-file|--output-dir)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         --employee-id) EMPLOYEE_ID="$2" ;;
         --computer-name) COMPUTER_NAME="$2" ;;
         --blob-file) BLOB_FILE="$2" ;;
+        --wazuh-manager) WAZUH_MANAGER="$2" ;;
+        --wazuh-agent-version) WAZUH_AGENT_VERSION="$2" ;;
+        --wazuh-agent-group) WAZUH_AGENT_GROUP="$2" ;;
+        --wazuh-msi-file) WAZUH_MSI_FILE="$2" ;;
         --output-dir) OUTPUT_DIR="$2" ;;
       esac
       shift 2
@@ -58,6 +71,9 @@ done
 [[ -n "$BLOB_FILE" ]] || die "--blob-file is required"
 [[ -f "$TEMPLATE" ]] || die "template not found: $TEMPLATE"
 [[ -f "$BLOB_FILE" ]] || die "blob file not found: $BLOB_FILE"
+if [[ -n "$WAZUH_MSI_FILE" ]]; then
+  [[ -f "$WAZUH_MSI_FILE" ]] || die "Wazuh MSI file not found: $WAZUH_MSI_FILE"
+fi
 command -v python3 >/dev/null 2>&1 || die "python3 is required"
 
 safe_employee="$(printf '%s' "$EMPLOYEE_ID" | tr -cd 'A-Za-z0-9_.-' | tr '[:upper:]' '[:lower:]')"
@@ -78,9 +94,21 @@ cp "$TEMPLATE" "$script_path"
 cp "$BLOB_FILE" "$blob_path"
 chmod 600 "$script_path" "$blob_path"
 
+wazuh_msi_arg=""
+wazuh_msi_summary="download from packages.wazuh.com"
+wazuh_msi_included="false"
+if [[ -n "$WAZUH_MSI_FILE" ]]; then
+  wazuh_msi_name="$(basename "$WAZUH_MSI_FILE")"
+  cp "$WAZUH_MSI_FILE" "$package_dir/$wazuh_msi_name"
+  chmod 600 "$package_dir/$wazuh_msi_name"
+  wazuh_msi_arg=" -WazuhMsiPath \"%~dp0$wazuh_msi_name\""
+  wazuh_msi_summary="included: $wazuh_msi_name"
+  wazuh_msi_included="true"
+fi
+
 cat > "$package_dir/run-as-admin.cmd" <<EOF_CMD
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Apply-OfflineDomainJoin.ps1" -EmployeeId "$EMPLOYEE_ID" -ComputerName "$COMPUTER_NAME" -DomainName "$DOMAIN_NAME" -BlobPath "%~dp0odj.blob" -DnsServers "$DNS_SERVERS"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Apply-OfflineDomainJoin.ps1" -EmployeeId "$EMPLOYEE_ID" -ComputerName "$COMPUTER_NAME" -DomainName "$DOMAIN_NAME" -BlobPath "%~dp0odj.blob" -DnsServers "$DNS_SERVERS" -WazuhManager "$WAZUH_MANAGER" -WazuhAgentVersion "$WAZUH_AGENT_VERSION" -WazuhAgentGroup "$WAZUH_AGENT_GROUP"$wazuh_msi_arg
 EOF_CMD
 
 cat > "$readme_path" <<EOF_README
@@ -90,11 +118,15 @@ Employee ID: $EMPLOYEE_ID
 Computer Name: $COMPUTER_NAME
 Domain: $DOMAIN_NAME
 DNS Servers: $DNS_SERVERS
+Wazuh Manager: $WAZUH_MANAGER
+Wazuh Agent Version: $WAZUH_AGENT_VERSION
+Wazuh Agent Group: $WAZUH_AGENT_GROUP
+Wazuh MSI Source: $wazuh_msi_summary
 
 Instructions:
 1. Log in to Windows with a local administrator account.
 2. Right-click run-as-admin.cmd and select Run as administrator.
-3. The PC will apply the ODJ blob and restart.
+3. The script installs and enrolls the Wazuh agent, applies the ODJ blob, and restarts the PC.
 4. After restart, connect to the corporate network and log in with the AD account.
 
 Security:
@@ -105,7 +137,9 @@ EOF_README
 chmod 600 "$readme_path" "$package_dir/run-as-admin.cmd"
 
 relative_package="${package_dir#$ROOT_DIR/}"
-ODJ_DB="$OPS_DB" ODJ_TARGET="$COMPUTER_NAME" ODJ_EMPLOYEE="$EMPLOYEE_ID" ODJ_PACKAGE="$relative_package" python3 <<'PY_DB'
+ODJ_DB="$OPS_DB" ODJ_TARGET="$COMPUTER_NAME" ODJ_EMPLOYEE="$EMPLOYEE_ID" ODJ_PACKAGE="$relative_package" \
+ODJ_WAZUH_MANAGER="$WAZUH_MANAGER" ODJ_WAZUH_AGENT_VERSION="$WAZUH_AGENT_VERSION" \
+ODJ_WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP" ODJ_WAZUH_MSI_INCLUDED="$wazuh_msi_included" python3 <<'PY_DB'
 import datetime, json, os, pathlib, sqlite3
 db_path = pathlib.Path(os.environ["ODJ_DB"])
 db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,6 +147,10 @@ details = {
     "employee_id": os.environ["ODJ_EMPLOYEE"],
     "package_path": os.environ["ODJ_PACKAGE"],
     "contains_odj_blob": True,
+    "wazuh_manager": os.environ["ODJ_WAZUH_MANAGER"],
+    "wazuh_agent_version": os.environ["ODJ_WAZUH_AGENT_VERSION"],
+    "wazuh_agent_group": os.environ["ODJ_WAZUH_AGENT_GROUP"],
+    "wazuh_msi_included": os.environ["ODJ_WAZUH_MSI_INCLUDED"] == "true",
 }
 with sqlite3.connect(db_path) as conn:
     conn.execute("""create table if not exists operations (

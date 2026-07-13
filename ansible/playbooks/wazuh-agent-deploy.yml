@@ -1,6 +1,6 @@
 ---
 - name: Install Wazuh Agent
-  hosts: all:!wazuh_server
+  hosts: linux_managed
   become: true
 
   vars:
