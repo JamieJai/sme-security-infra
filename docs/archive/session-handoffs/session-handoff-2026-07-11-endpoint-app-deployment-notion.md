@@ -369,3 +369,178 @@ OAuth authorization required
 4. Notion content는 `docs/portfolio/endpoint-app-deployment-system-install.md`에서 첫 번째 H1 title을 제외한 본문을 사용하고, page title은 `[Project 09] Endpoint 표준 앱 배포 자동화 및 관리자 권한 분리`로 유지한다.
 5. replace 후 fetch로 반영 여부를 확인한다.
 
+
+## 2026-07-12 Project 09 Notion Replace Completed
+
+이전 handoff의 Notion OAuth block 이후 작업을 이어서 완료했다.
+
+확인:
+
+- `mcp__notion.notion_fetch`가 정상 동작했다.
+- 대상 page에는 child page/database가 없어 `replace_content`를 사용할 수 있었다.
+- 기존 Notion 본문은 초기 버전이라 pilot group, scheduled task, 재부팅 후 ONSTART 검증 내용이 빠져 있었다.
+
+적용:
+
+- `docs/portfolio/endpoint-app-deployment-system-install.md`의 첫 번째 H1 title을 제외한 본문으로 Notion page content를 전체 교체했다.
+- page title은 기존 `[Project 09] Endpoint 표준 앱 배포 자동화 및 관리자 권한 분리`를 유지했다.
+- Notion async task: `task_d6736c4947254fa88e9a7d4f475cb73e`
+- async task status: `succeeded`
+
+검증:
+
+- `mcp__notion.notion_fetch`로 교체 후 본문을 확인했다.
+- 확인 marker:
+  - `기술적 조치 6: 재부팅 후 ONSTART trigger 검증`
+  - `endpoint_app_bootstrap_onstart_reboot_verify`
+  - `endpoint-apps-20260712-141902.log`
+- operations DB record: id `32`, scope `project09_notion_replace_content`, status `success`
+
+다음 단계:
+
+1. Project 09 portfolio 작업은 Notion 교체까지 완료됐다.
+2. Endpoint app deployment의 다음 운영 단계는 GPO/Scheduled Tasks preference 또는 endpoint management 도구로 일반화하는 것이다.
+3. 실제 여러 PC로 확장하기 전에는 `Endpoint_App_Install_Pilot` security group scope, rollback, helpdesk 진단 절차를 먼저 확정한다.
+4. 별도 pending 작업으로 SMB department folder ACL playbook 적용 여부가 남아 있다. 이는 파일 접근 권한 변경이므로 실행 전 사용자 승인을 받는다.
+
+## 2026-07-12 Endpoint App GPO Scheduled Task Preparation
+
+다음 단계로 pilot endpoint 직접 scheduled task 방식을 GPO Scheduled Task preference로 일반화할 준비를 했다. 실제 GPO 생성/링크는 하지 않았다.
+
+추가한 파일:
+
+- `ansible/playbooks/endpoint-app-gpo-scheduled-task.yml`
+- `ansible/templates/endpoint-app-scheduled-task-gpp.xml.j2`
+
+설계:
+
+- GPO display name: `Endpoint_App_Bootstrap_Pilot`
+- Task name: `Toss_EndpointAppBootstrap`
+- Trigger: boot/startup
+- Run as: `NT AUTHORITY\SYSTEM`
+- Command: `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File \\storage01\endpoint-apps\Install-EndpointApps.ps1`
+- Link target: `DC=toss,DC=lan`
+- Security filter target: `Endpoint_App_Install_Pilot`
+
+안전장치:
+
+- playbook 기본값은 dry-run이며 AD/SYSVOL을 변경하지 않는다.
+- `endpoint_app_gpo_apply=true`만 주면 실패한다.
+- 실제 적용은 `endpoint_app_gpo_apply=true`와 `endpoint_app_gpo_security_filter_apply=true`를 함께 명시해야 한다.
+- security filtering 전에 도메인 루트에 링크되지 않도록 task 순서를 구성했다.
+
+검증:
+
+```bash
+ansible-playbook -i ansible/inventory/hosts ansible/playbooks/endpoint-app-gpo-scheduled-task.yml --syntax-check
+ansible-playbook -i ansible/inventory/hosts ansible/playbooks/endpoint-app-gpo-scheduled-task.yml
+ansible-playbook -i ansible/inventory/hosts ansible/playbooks/endpoint-app-gpo-scheduled-task.yml -e endpoint_app_gpo_apply=true
+```
+
+결과:
+
+- syntax-check 통과
+- dry-run 결과 `changed=0`, `failed=0`
+- guard negative test는 GPO 생성 전 실패했고 `changed=false`
+- `samba-tool gpo listall`에서 `Endpoint_App_Bootstrap_Pilot` GPO가 생성되지 않은 것을 확인했다.
+
+다음에 실제 적용하려면:
+
+```bash
+ansible-playbook -i ansible/inventory/hosts \
+  ansible/playbooks/endpoint-app-gpo-scheduled-task.yml \
+  -e endpoint_app_gpo_apply=true \
+  -e endpoint_app_gpo_security_filter_apply=true
+```
+
+적용 후 확인:
+
+1. `samba-tool gpo listall`에서 `Endpoint_App_Bootstrap_Pilot` GUID 확인
+2. `samba-tool gpo getlink DC=toss,DC=lan`에서 링크 확인
+3. `samba-tool dsacl get --objectdn CN=<GUID>,CN=Policies,CN=System,DC=toss,DC=lan`에서 pilot group Apply Group Policy 권한 확인
+4. `ODJ-VERIFY01`에서 `gpupdate /force`, scheduled task 존재 여부, detection path, latest endpoint app log 확인
+
+## 2026-07-12 Endpoint App GPO Apply Attempt Blocked
+
+Pilot-limited GPO Scheduled Task preference 실제 적용을 시도했다.
+
+실행:
+
+```bash
+ansible-playbook -i ansible/inventory/hosts \
+  ansible/playbooks/endpoint-app-gpo-scheduled-task.yml \
+  -e endpoint_app_gpo_apply=true \
+  -e endpoint_app_gpo_security_filter_apply=true
+```
+
+결과:
+
+- `samba-tool gpo create Endpoint_App_Bootstrap_Pilot` 단계에서 실패했다.
+- 오류: `LDAP_INSUFFICIENT_ACCESS_RIGHTS` while adding `CN={72C82F13-78F6-41FE-AC49-44A1486F90B1},CN=Policies,CN=System,DC=toss,DC=lan`
+- security filtering, domain root link, SYSVOL `ScheduledTasks.xml` 작성 단계까지 가지 않았다.
+
+잔여물 확인:
+
+- `samba-tool gpo listall`에 `Endpoint_App_Bootstrap_Pilot` 없음
+- `/var/lib/samba/sysvol/toss.lan/Policies/{72C82F13-78F6-41FE-AC49-44A1486F90B1}` 없음
+- 즉 롤백할 GPO/link는 생성되지 않았다.
+
+운영 DB:
+
+- id `33`, scope `endpoint_app_gpo_scheduled_task_apply_attempt`, status `blocked`
+
+다음 단계:
+
+1. RSAT/GPMC 같은 domain-admin context에서 GPO를 생성하거나, root-readable Kerberos ccache를 active DC에 준비한 뒤 `endpoint_app_gpo_samba_tool_args=["--use-kerberos=required"]`와 `endpoint_app_gpo_krb5ccname=FILE:/tmp/krb5cc_endpoint_gpo`로 같은 playbook을 실행한다.
+2. 커맨드라인에 `-U user%password`, `--password`, vault 값, app password는 넣지 않는다. playbook validation이 `%`와 `password` 문자열을 포함한 `samba-tool` 인자를 차단한다.
+3. 그 뒤 같은 playbook으로 pilot security filtering과 domain root link를 적용한다.
+4. 적용 후 `ODJ-VERIFY01`에서 `gpupdate /force`, task 존재 여부, detection path, latest endpoint app log를 확인한다.
+5. 여러 PC 확장은 pilot group에 computer account를 추가하는 방식으로만 진행한다.
+
+후속 보강:
+
+- `samba-tool` 호출을 `argv` 기반으로 전환하고 optional Kerberos ccache 환경 변수를 지원했다.
+- 검증: syntax-check 통과, dry-run `changed=0 failed=0`, apply-only guard `changed=0 failed=1`, password-bearing auth arg validation `changed=0 failed=1`.
+- operations DB record: id `34`, scope `endpoint_app_gpo_scheduled_task_playbook_followup`, status `success`.
+
+
+## 2026-07-12 Endpoint App GPO Apply Completed
+
+Pilot-limited GPO Scheduled Task preference 적용을 완료했다.
+
+결과:
+
+- GPO: `Endpoint_App_Bootstrap_Pilot`
+- GUID: `{561D8CEF-7765-4FAD-87E0-28DD3B6DC6B4}`
+- Link: `DC=toss,DC=lan`
+- Security filter: `Endpoint_App_Install_Pilot`
+- Pilot member: `ODJ-VERIFY01$`
+- Scheduled task: `Toss_EndpointAppBootstrap`
+
+중요한 적용 메모:
+
+- Kerberos ccache는 vault의 `ad_admin_password`로 생성했고 값은 출력하지 않았다.
+- 사용자가 채팅에 노출한 이전 비밀번호는 폐기 대상으로 보고 후속으로 AD Administrator rotation을 권장한다.
+- `samba-tool gpo create`는 Kerberos 경로에서 SYSVOL SMB 단계가 hang되어 root-only 임시 Samba auth file로 GPO shell을 생성하고 즉시 삭제했다.
+- `samba-tool dsacl set --car <GUID>`는 이 Samba 버전에서 허용되지 않아 pilot group SID 기반 SDDL ACE를 사용했다.
+- `samba-tool gpo load`와 `samba-tool ntacl set --recursive`는 각각 hang/assert 문제가 있어 사용하지 않았다.
+- AD metadata는 Samba Python `SamDB` system session으로 `versionNumber=2`와 Scheduled Tasks machine extension pair를 설정했다.
+- SYSVOL 자동 복제가 되지 않아 dc02의 새 GPO directory를 `tar --xattrs --acls`로 dc01에 복제했다.
+
+검증:
+
+- playbook syntax-check 통과
+- playbook rerun: `changed=0`, `failed=0`
+- dc01/dc02 `samba-tool gpo show {561D8CEF-7765-4FAD-87E0-28DD3B6DC6B4}`에서 Machine Exts와 version `2` 확인
+- dc01/dc02 SYSVOL `GPT.INI` SHA256 일치: `ecb5f42ba32e6f1ba1300f7718f744aef72f17bf1351642e93ef41498d0311b0`
+- dc01/dc02 SYSVOL `ScheduledTasks.xml` SHA256 일치: `7691a3f2e0533b58cd4d9643500dd5879dc467350dd8ab9c0a63d8756166d9e3`
+- `ODJ-VERIFY01` `gpupdate /target:computer /force` 성공
+- `gpresult`에 `Endpoint_App_Bootstrap_Pilot` 표시
+- `Get-ScheduledTask Toss_EndpointAppBootstrap` 확인: `SYSTEM`, boot trigger, expected PowerShell action, `LastTaskResult=0`
+- operations DB record: id `36`, scope `endpoint_app_gpo_scheduled_task_apply`, status `success`
+
+후속:
+
+1. 채팅에 노출된 AD Administrator 비밀번호를 `ansible/playbooks/rotate-ad-administrator.yml`로 회전한다.
+2. Samba GPO 자동화 개선: GPO create authfile fallback, SYSVOL multi-DC sync, NTACL handling을 playbook에 정식화한다.
+3. 더 많은 PC 확장은 `Endpoint_App_Install_Pilot`에 computer account를 추가하는 방식으로만 진행한다.

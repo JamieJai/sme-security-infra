@@ -1,0 +1,282 @@
+---
+- name: Prepare endpoint app bootstrap GPO Scheduled Task preference
+  hosts: active_dc
+  become: yes
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars:
+    endpoint_app_gpo_display_name: Endpoint_App_Bootstrap_Pilot
+    endpoint_app_gpo_domain_dn: DC=toss,DC=lan
+    endpoint_app_gpo_pilot_group: Endpoint_App_Install_Pilot
+    endpoint_app_gpo_pilot_group_dn: CN=Endpoint_App_Install_Pilot,CN=Users,DC=toss,DC=lan
+    endpoint_app_gpo_apply: false
+    endpoint_app_gpo_security_filter_apply: false
+    endpoint_app_gpo_allow_without_security_filter: false
+    endpoint_app_gpo_samba_tool_args: []
+    endpoint_app_gpo_guid_override: ""
+    endpoint_app_gpo_krb5ccname: ""
+    endpoint_app_gpo_samba_tool_env: "{{ {'KRB5CCNAME': endpoint_app_gpo_krb5ccname} if (endpoint_app_gpo_krb5ccname | string | length > 0) else {} }}"
+    endpoint_app_gpo_task_name: Toss_EndpointAppBootstrap
+    endpoint_app_gpo_bootstrap_script: '\\storage01\endpoint-apps\Install-EndpointApps.ps1'
+    endpoint_app_gpo_powershell_path: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    endpoint_app_gpo_task_uid: '{4E00F4CE-19E0-4A30-A2A3-3EF14F0C67DD}'
+    endpoint_app_gpo_changed_timestamp: '2026-07-12 16:30:00'
+    endpoint_app_gpo_author: TOSS\IT_Admins
+    endpoint_app_gpo_machine_version: 2
+    endpoint_app_gpo_machine_extension_names: '[{AADCED64-746C-4633-A97C-D61349046527}{CAB54552-DEEA-4691-817E-ED4A4D1AFC72}]'
+    endpoint_app_gpo_apply_right_guid: edacfd8f-ffb3-11d1-b41d-00a0c968f939
+    endpoint_app_gpo_sysvol_root: "/var/lib/samba/sysvol/{{ domain_name }}/Policies"
+
+  tasks:
+    - name: Explain dry-run default
+      ansible.builtin.debug:
+        msg:
+          - "This playbook defaults to dry-run. Set endpoint_app_gpo_apply=true to create/link the GPO."
+          - "Set endpoint_app_gpo_security_filter_apply=true only when applying the pilot group security filter."
+
+    - name: Validate endpoint app GPO inputs
+      ansible.builtin.assert:
+        that:
+          - endpoint_app_gpo_display_name is match('^[A-Za-z0-9_. -]{1,128}$')
+          - endpoint_app_gpo_pilot_group is match('^[A-Za-z0-9_.-]{1,64}$')
+          - endpoint_app_gpo_task_name is match('^[A-Za-z0-9_.-]{1,128}$')
+          - endpoint_app_gpo_samba_tool_args is sequence
+          - endpoint_app_gpo_samba_tool_args is not string
+          - "'%' not in (endpoint_app_gpo_samba_tool_args | join(' '))"
+          - "'password' not in ((endpoint_app_gpo_samba_tool_args | join(' ')) | lower)"
+        fail_msg: "Use safe names and pass samba-tool auth as a list without passwords. Prefer Kerberos with --use-kerberos=required and endpoint_app_gpo_krb5ccname."
+
+    - name: Read existing endpoint app GPO list
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'gpo', 'listall'] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      register: endpoint_app_gpo_listall
+      changed_when: false
+
+    - name: Resolve existing endpoint app GPO GUID
+      ansible.builtin.set_fact:
+        endpoint_app_gpo_existing_guid: >-
+          {{
+            endpoint_app_gpo_guid_override
+            if (endpoint_app_gpo_guid_override | string | length > 0)
+            else (
+              endpoint_app_gpo_listall.stdout |
+              regex_findall(
+                '(?ms)^display name\\s*:\\s*' ~
+                (endpoint_app_gpo_display_name | regex_escape) ~
+                '\\s*\\n(?:path|dn)\\s*:\\s*.*?(\\{[0-9A-Fa-f-]+\\})'
+              ) |
+              first |
+              default('')
+            )
+          }}
+
+    - name: Require explicit security filtering before creating or linking
+      ansible.builtin.assert:
+        that:
+          - endpoint_app_gpo_security_filter_apply | bool or endpoint_app_gpo_allow_without_security_filter | bool
+        fail_msg: "Refusing to create/link the endpoint app GPO without pilot security filtering. Set endpoint_app_gpo_security_filter_apply=true, or endpoint_app_gpo_allow_without_security_filter=true only for a deliberate broad test."
+      when: endpoint_app_gpo_apply | bool
+
+    - name: Create endpoint app GPO when explicitly enabled
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'gpo', 'create', endpoint_app_gpo_display_name] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      register: endpoint_app_gpo_create
+      changed_when: endpoint_app_gpo_create.rc == 0
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_existing_guid | length == 0
+
+    - name: Resolve endpoint app GPO GUID
+      ansible.builtin.set_fact:
+        endpoint_app_gpo_guid: >-
+          {{
+            endpoint_app_gpo_existing_guid
+            if (endpoint_app_gpo_existing_guid | length > 0)
+            else (endpoint_app_gpo_create.stdout | default('') | regex_search('\{[0-9A-Fa-f-]+\}'))
+          }}
+
+    - name: Stop dry-run before making GPO changes
+      ansible.builtin.debug:
+        msg:
+          - "Dry-run only: would create/link GPO {{ endpoint_app_gpo_display_name }} at {{ endpoint_app_gpo_domain_dn }}."
+          - "Scheduled task: {{ endpoint_app_gpo_task_name }} -> {{ endpoint_app_gpo_powershell_path }} -NoProfile -ExecutionPolicy Bypass -File {{ endpoint_app_gpo_bootstrap_script }}"
+          - "Security filter target: {{ endpoint_app_gpo_pilot_group }}."
+      when: not endpoint_app_gpo_apply | bool
+
+    - name: Verify GPO GUID is available when applying
+      ansible.builtin.assert:
+        that:
+          - endpoint_app_gpo_guid is defined
+          - endpoint_app_gpo_guid | length > 0
+        fail_msg: "Could not resolve endpoint app GPO GUID after create/list."
+      when: endpoint_app_gpo_apply | bool
+
+
+    - name: Ensure Scheduled Tasks preference directory exists
+      ansible.builtin.file:
+        path: "{{ endpoint_app_gpo_sysvol_root }}/{{ endpoint_app_gpo_guid }}/Machine/Preferences/ScheduledTasks"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: endpoint_app_gpo_apply | bool
+
+    - name: Publish endpoint app Scheduled Task preference XML
+      ansible.builtin.template:
+        src: ../templates/endpoint-app-scheduled-task-gpp.xml.j2
+        dest: "{{ endpoint_app_gpo_sysvol_root }}/{{ endpoint_app_gpo_guid }}/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: yes
+      when: endpoint_app_gpo_apply | bool
+
+    - name: Set endpoint app GPO computer version in GPT.INI
+      ansible.builtin.copy:
+        dest: "{{ endpoint_app_gpo_sysvol_root }}/{{ endpoint_app_gpo_guid }}/GPT.INI"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: yes
+        content: |
+          [General]
+          Version={{ endpoint_app_gpo_machine_version }}
+          displayName={{ endpoint_app_gpo_display_name }}
+      when: endpoint_app_gpo_apply | bool
+
+
+    - name: Set endpoint app GPO AD machine metadata
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import ldb
+        from samba import param
+        from samba.auth import system_session
+        from samba.samdb import SamDB
+
+        gpo_dn = "CN={{ endpoint_app_gpo_guid }},CN=Policies,CN=System,{{ endpoint_app_gpo_domain_dn }}"
+        lp = param.LoadParm()
+        lp.load('/etc/samba/smb.conf')
+        samdb = SamDB(url='/var/lib/samba/private/sam.ldb', session_info=system_session(), lp=lp)
+        current = samdb.search(base=gpo_dn, scope=ldb.SCOPE_BASE, attrs=['versionNumber', 'gPCMachineExtensionNames'])[0]
+        current_version = str(current.get('versionNumber', [b''])[0].decode() if isinstance(current.get('versionNumber', [b''])[0], bytes) else current.get('versionNumber', [''])[0])
+        current_exts = str(current.get('gPCMachineExtensionNames', [b''])[0].decode() if isinstance(current.get('gPCMachineExtensionNames', [b''])[0], bytes) else current.get('gPCMachineExtensionNames', [''])[0])
+        desired_version = "{{ endpoint_app_gpo_machine_version }}"
+        desired_exts = "{{ endpoint_app_gpo_machine_extension_names }}"
+        if current_version != desired_version or current_exts != desired_exts:
+            msg = ldb.Message()
+            msg.dn = ldb.Dn(samdb, gpo_dn)
+            msg['versionNumber'] = ldb.MessageElement(desired_version, ldb.FLAG_MOD_REPLACE, 'versionNumber')
+            msg['gPCMachineExtensionNames'] = ldb.MessageElement(desired_exts, ldb.FLAG_MOD_REPLACE, 'gPCMachineExtensionNames')
+            samdb.modify(msg)
+            print('changed')
+        else:
+            print('ok')
+        PY
+      register: endpoint_app_gpo_metadata
+      changed_when: "'changed' in endpoint_app_gpo_metadata.stdout"
+      when: endpoint_app_gpo_apply | bool
+
+
+    - name: Read endpoint app pilot group
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'group', 'show', endpoint_app_gpo_pilot_group] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      register: endpoint_app_gpo_group
+      changed_when: false
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+
+    - name: Verify pilot group DN
+      ansible.builtin.assert:
+        that:
+          - endpoint_app_gpo_pilot_group_dn in endpoint_app_gpo_group.stdout
+        fail_msg: "Pilot security group {{ endpoint_app_gpo_pilot_group_dn }} was not found."
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+
+    - name: Resolve pilot group SID
+      ansible.builtin.set_fact:
+        endpoint_app_gpo_pilot_group_sid: >-
+          {{
+            endpoint_app_gpo_group.stdout |
+            regex_findall('objectSid:\s*(S-[0-9-]+)') |
+            first |
+            default('')
+          }}
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+
+    - name: Verify pilot group SID
+      ansible.builtin.assert:
+        that:
+          - endpoint_app_gpo_pilot_group_sid | length > 0
+        fail_msg: "Could not resolve SID for {{ endpoint_app_gpo_pilot_group }}."
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+
+    - name: Read endpoint app GPO ACL
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'dsacl', 'get', '--objectdn', 'CN=' ~ endpoint_app_gpo_guid ~ ',CN=Policies,CN=System,' ~ endpoint_app_gpo_domain_dn] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      register: endpoint_app_gpo_acl
+      changed_when: false
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+
+    - name: Remove Authenticated Users Apply Group Policy right
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'dsacl', 'delete', '--objectdn', 'CN=' ~ endpoint_app_gpo_guid ~ ',CN=Policies,CN=System,' ~ endpoint_app_gpo_domain_dn, '--sddl', '(OA;CI;CR;' ~ endpoint_app_gpo_apply_right_guid ~ ';;AU)'] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+        - "((endpoint_app_gpo_apply_right_guid | lower) ~ ';;au') in (endpoint_app_gpo_acl.stdout | lower)"
+
+    - name: Allow pilot group to apply endpoint app GPO
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'dsacl', 'set', '--objectdn', 'CN=' ~ endpoint_app_gpo_guid ~ ',CN=Policies,CN=System,' ~ endpoint_app_gpo_domain_dn, '--sddl', '(OA;CI;CR;' ~ endpoint_app_gpo_apply_right_guid ~ ';;' ~ endpoint_app_gpo_pilot_group_sid ~ ')'] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_security_filter_apply | bool
+        - endpoint_app_gpo_pilot_group_sid not in endpoint_app_gpo_acl.stdout
+
+    - name: Warn when security filtering was not applied
+      ansible.builtin.debug:
+        msg: "GPO security filtering was not changed. Do not link broadly unless Endpoint_App_Install_Pilot is the only Apply Group Policy principal."
+      when:
+        - endpoint_app_gpo_apply | bool
+        - not endpoint_app_gpo_security_filter_apply | bool
+
+    - name: Read domain GPO links
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'gpo', 'getlink', endpoint_app_gpo_domain_dn] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      register: endpoint_app_gpo_links
+      changed_when: false
+      when: endpoint_app_gpo_apply | bool
+
+    - name: Link endpoint app GPO to domain root when missing
+      ansible.builtin.command:
+        argv: "{{ ['samba-tool', 'gpo', 'setlink', endpoint_app_gpo_domain_dn, endpoint_app_gpo_guid] + endpoint_app_gpo_samba_tool_args }}"
+      environment: "{{ endpoint_app_gpo_samba_tool_env }}"
+      when:
+        - endpoint_app_gpo_apply | bool
+        - endpoint_app_gpo_guid not in endpoint_app_gpo_links.stdout
+
+    - name: Print endpoint app GPO rollback commands
+      ansible.builtin.debug:
+        msg:
+          - "Rollback GPO link: samba-tool gpo dellink {{ endpoint_app_gpo_domain_dn }} {{ endpoint_app_gpo_guid | default('<GPO_GUID>', true) }}"
+          - "Rollback GPO object: samba-tool gpo del {{ endpoint_app_gpo_guid | default('<GPO_GUID>', true) }}"
+          - "Rollback pilot scope: samba-tool group removemembers {{ endpoint_app_gpo_pilot_group }} <COMPUTER>$"

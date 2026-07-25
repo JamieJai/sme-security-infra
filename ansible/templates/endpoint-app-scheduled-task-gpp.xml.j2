@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScheduledTasks clsid="{CC63F200-7309-4BA0-B154-A71CD118DBCC}">
+  <TaskV2 clsid="{D8896631-B747-47A7-84A6-C155337F3BC8}" name="{{ endpoint_app_gpo_task_name }}" image="0" changed="{{ endpoint_app_gpo_changed_timestamp }}" uid="{{ endpoint_app_gpo_task_uid }}">
+    <Properties action="U" name="{{ endpoint_app_gpo_task_name }}" runAs="NT AUTHORITY\System" logonType="S4U">
+      <Task version="1.3">
+        <RegistrationInfo>
+          <Author>{{ endpoint_app_gpo_author }}</Author>
+          <Description>Install approved endpoint standard apps from {{ endpoint_app_gpo_bootstrap_script }}.</Description>
+        </RegistrationInfo>
+        <Principals>
+          <Principal id="Author">
+            <UserId>S-1-5-18</UserId>
+            <RunLevel>HighestAvailable</RunLevel>
+          </Principal>
+        </Principals>
+        <Settings>
+          <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+          <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+          <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+          <AllowHardTerminate>true</AllowHardTerminate>
+          <StartWhenAvailable>true</StartWhenAvailable>
+          <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+          <IdleSettings>
+            <StopOnIdleEnd>false</StopOnIdleEnd>
+            <RestartOnIdle>false</RestartOnIdle>
+          </IdleSettings>
+          <AllowStartOnDemand>true</AllowStartOnDemand>
+          <Enabled>true</Enabled>
+          <Hidden>false</Hidden>
+          <RunOnlyIfIdle>false</RunOnlyIfIdle>
+          <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+          <Priority>7</Priority>
+        </Settings>
+        <Triggers>
+          <BootTrigger>
+            <Enabled>true</Enabled>
+          </BootTrigger>
+        </Triggers>
+        <Actions Context="Author">
+          <Exec>
+            <Command>{{ endpoint_app_gpo_powershell_path }}</Command>
+            <Arguments>-NoProfile -ExecutionPolicy Bypass -File &quot;{{ endpoint_app_gpo_bootstrap_script }}&quot;</Arguments>
+          </Exec>
+        </Actions>
+      </Task>
+    </Properties>
+  </TaskV2>
+</ScheduledTasks>

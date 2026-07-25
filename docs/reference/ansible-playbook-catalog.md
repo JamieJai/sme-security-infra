@@ -57,6 +57,7 @@
 | `playbooks/ad-postconfig.yml` | AD 후속 구성 |
 | `playbooks/endpoint-app-deployment-scope.yml` | Endpoint 표준 앱 배포 pilot 보안 그룹과 computer membership 준비 |
 | `playbooks/endpoint-app-bootstrap-task.yml` | Pilot Windows endpoint에 SYSTEM startup task로 표준 앱 bootstrap 배포 |
+| `playbooks/endpoint-app-gpo-scheduled-task.yml` | Endpoint 표준 앱 bootstrap을 pilot security group 한정 GPO Scheduled Task preference로 일반화 |
 | `playbooks/endpoint-onboarding.yml` | Windows endpoint onboarding 후 Wazuh security visibility 적용 |
 | `playbooks/rotate-ad-administrator.yml` | AD Administrator 암호 회전 |
 | `playbooks/nextcloud-tls.yml` | Nextcloud TLS 인증서 교체 |
