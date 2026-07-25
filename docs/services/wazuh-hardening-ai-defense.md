@@ -172,6 +172,7 @@ AI 응답은 JSON schema로 검증하며 verdict, confidence, summary, evidence_
 ### Phase 4: Analyst notification
 
 - High/Critical alert만 Security_Team channel로 전달
+- Telegram을 사용할 경우 bot token, chat ID, webhook URL은 vault 또는 environment variable로만 주입하고 repository에는 저장하지 않음
 - feedback label과 case audit trail 저장
 - weekly false-positive review와 rule tuning
 
@@ -206,7 +207,7 @@ network access, Wazuh write API, SSH/shell 권한은 없다.
 
 `wazuh-ai-shadow`는 `/var/lib/wazuh-ai-shadow/metrics.json`에 운영 지표를 생성한다.
 report는 pending/enriched event count, duplicate rate, invalid JSON count, trim/backpressure
-indicator, redaction leakage count, p50/p95 enrichment latency를 포함한다. 기존 DB에서
+indicator, notification queue count, redaction leakage count, p50/p95 enrichment latency를 포함한다. 기존 DB에서
 migration된 과거 event는 `enriched_at` 값이 없어 latency가 `null`일 수 있으며, 새로
 enrich되는 event부터 latency가 계산된다.
 
@@ -220,3 +221,52 @@ enrich되는 event부터 latency가 계산된다.
 운영 활성화 기준은 `redaction_leak_count=0`, loss indicators 0, pending backlog 안정,
 p95 latency 허용 범위 충족이다. notification, external LLM, automated action은 별도 승인
 전까지 비활성 상태로 유지한다.
+
+
+## Telegram notification opt-in
+
+Telegram delivery is implemented as a separate opt-in timer, not inside the always-on shadow collector. The collector keeps `notification=false` and `automated_action=false` in enrichment output, but queues High/Critical candidates in the local SQLite `notifications` table. This preserves shadow-mode safety while making analyst notification readiness measurable.
+
+The optional notifier uses Telegram Bot API `sendMessage`, which requires `chat_id` and `text` for message delivery. Bot token and chat ID must be supplied through `/etc/wazuh-ai-shadow/telegram.env`, vault, or environment variables. They must not be committed to Git.
+
+Default deployment state:
+
+```bash
+ansible-playbook -i inventory/hosts playbooks/wazuh-ai-shadow.yml
+systemctl is-enabled wazuh-ai-telegram-notifier.timer  # disabled
+```
+
+Opt-in deployment after token handling, recipient, rate limit, and rollback are approved:
+
+```bash
+ansible-playbook -i inventory/hosts playbooks/wazuh-ai-shadow.yml \
+  -e wazuh_ai_telegram_enabled=true
+```
+
+When an enabled timer is active but has no next run, the playbook primes the
+one-shot notifier service once and then verifies that systemd has scheduled the
+next run. This recovers safely from large host clock corrections without
+restarting a healthy timer on every convergent apply.
+
+Expected environment file format on the Wazuh host:
+
+```text
+TELEGRAM_BOT_TOKEN=<vault-or-runtime-secret>
+TELEGRAM_CHAT_ID=<approved-chat-id>
+```
+
+Live deployment status (2026-07-25):
+
+- The notifier timer is enabled and runs once per minute.
+- `/etc/wazuh-ai-shadow/telegram.env` is owned by `root:wazuh` with mode `0640`.
+- A direct Bot API delivery test passed.
+- Seven queued High/Critical candidates were delivered and the following timer
+  execution completed successfully.
+- Token and recipient values remain outside Git.
+
+Rollback:
+
+```bash
+systemctl disable --now wazuh-ai-telegram-notifier.timer
+rm -f /etc/wazuh-ai-shadow/telegram.env
+```

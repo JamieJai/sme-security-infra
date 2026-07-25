@@ -1,0 +1,1 @@
+Jul  4 12:00:00 dc01 samba[1000]: Failed to bind to uuid redacted for ncacn_ip_tcp:192.0.2.21 NT_STATUS_LOGON_FAILURE

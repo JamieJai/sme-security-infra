@@ -19,8 +19,13 @@ playbook은 기존 custom 파일을 메모리에 백업하고 새 decoder/rule�
 | 100202 | 10 | 동일 source IP의 120초 내 Keycloak LOGIN_ERROR 5회 |
 | 100301 | 10 | 동일 source IP의 120초 내 Dovecot invalid login 5회 |
 | 100401 | 8 | Samba AD replication bind authentication failure |
+| 100501 | 7 | Windows Security Event ID 4625 failed logon |
+| 100502 | 10 | 동일 source의 120초 내 Windows failed logon 5회 |
+| 100503 | 3 | Windows Security Event ID 4624 successful logon |
+| 100504 | 8 | Windows PowerShell Event ID 4104 script block logging |
+| 100505 | 10 | Microsoft Defender Event ID 1116 malware detection |
 
-100200은 Keycloak event의 parent rule이며 level 0이라 alert를 생성하지 않는다.
+100200은 Keycloak event의 parent rule이며 level 0이라 alert를 생성하지 않는다. Windows rule은 Kali purple-team validation의 초기 증거 수집 기준으로 사용한다.
 
 ## Fixture
 

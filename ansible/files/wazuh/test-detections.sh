@@ -30,3 +30,8 @@ run_test nextcloud-login-error 100102 6
 run_test dovecot-login-error 9705
 run_test dovecot-login-error 100301 6
 run_test samba-replication-auth-error 100401
+run_test windows-4625-failed-logon 100501
+run_test windows-4625-failed-logon 100502 6
+run_test windows-4624-success-logon 100503
+run_test windows-powershell-4104 100504
+run_test windows-defender-1116 100505

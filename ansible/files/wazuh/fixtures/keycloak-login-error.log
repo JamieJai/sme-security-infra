@@ -1,0 +1,1 @@
+Jul 03 11:47:54 keycloak kc.sh[1000]: 2026-07-03 11:47:54,139 WARN [org.keycloak.events] (executor-thread-1) type=LOGIN_ERROR, realmId=realm-redacted, clientId=nextcloud-oidc, userId=null, ipAddress=192.0.2.10, error=invalid_user_credentials, auth_method=openid-connect

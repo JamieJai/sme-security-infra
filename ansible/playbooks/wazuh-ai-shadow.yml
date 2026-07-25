@@ -3,6 +3,12 @@
   hosts: wazuh_server
   become: true
   gather_facts: false
+  vars:
+    wazuh_ai_telegram_enabled: false
+    wazuh_ai_telegram_env_file: /etc/wazuh-ai-shadow/telegram.env
+    wazuh_ai_telegram_bot_token: "{{ lookup('ansible.builtin.env', 'TELEGRAM_BOT_TOKEN') | default('', true) }}"
+    wazuh_ai_telegram_chat_id: "{{ lookup('ansible.builtin.env', 'TELEGRAM_CHAT_ID') | default('', true) }}"
+    wazuh_ai_telegram_validate_api: true
   tasks:
     - name: Create non-login shadow worker account
       ansible.builtin.user:
@@ -22,6 +28,7 @@
       loop:
         - { path: /usr/local/lib/wazuh-ai-shadow, owner: root, group: root, mode: "0755" }
         - { path: /var/lib/wazuh-ai-shadow, owner: wazuh-ai-shadow, group: wazuh, mode: "0750" }
+        - { path: /etc/wazuh-ai-shadow, owner: root, group: wazuh, mode: "0750" }
     - name: Install shadow collector
       ansible.builtin.copy:
         src: ../files/wazuh/ai-shadow/wazuh_ai_shadow.py
@@ -49,6 +56,108 @@
         group: root
         mode: "0644"
       notify: Restart shadow collector
+    - name: Install Telegram notifier systemd units
+      ansible.builtin.copy:
+        src: "../files/wazuh/ai-shadow/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - wazuh-ai-telegram-notifier.service
+        - wazuh-ai-telegram-notifier.timer
+
+    - name: Install Telegram runtime secret file from controller environment
+      ansible.builtin.copy:
+        dest: "{{ wazuh_ai_telegram_env_file }}"
+        owner: root
+        group: wazuh
+        mode: "0640"
+        content: |
+          TELEGRAM_BOT_TOKEN={{ wazuh_ai_telegram_bot_token }}
+          TELEGRAM_CHAT_ID={{ wazuh_ai_telegram_chat_id }}
+      no_log: true
+      when:
+        - wazuh_ai_telegram_bot_token | length > 0
+        - wazuh_ai_telegram_chat_id | length > 0
+
+    - name: Check Telegram runtime secret file before enabling notifier
+      ansible.builtin.stat:
+        path: "{{ wazuh_ai_telegram_env_file }}"
+      register: telegram_env_file
+      when: wazuh_ai_telegram_enabled | bool
+
+    - name: Require Telegram runtime secret file before enabling notifier
+      ansible.builtin.assert:
+        that:
+          - telegram_env_file.stat.exists
+          - telegram_env_file.stat.pw_name == 'root'
+          - telegram_env_file.stat.gr_name == 'wazuh'
+          - telegram_env_file.stat.mode == '0640'
+        fail_msg: >-
+          Telegram notifier enablement requires {{ wazuh_ai_telegram_env_file }} with root:wazuh 0640.
+          Provide TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the controller environment or create the file manually on the Wazuh host.
+      when: wazuh_ai_telegram_enabled | bool
+
+    - name: Validate Telegram runtime secret keys before enabling notifier
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import pathlib,sys;
+            vals=dict(line.split('=',1) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if '=' in line);
+            assert vals.get('TELEGRAM_BOT_TOKEN') and vals.get('TELEGRAM_CHAT_ID')
+          - "{{ wazuh_ai_telegram_env_file }}"
+      changed_when: false
+      no_log: true
+      when: wazuh_ai_telegram_enabled | bool
+
+    - name: Validate Telegram Bot API credentials before enabling notifier
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import json,pathlib,sys,urllib.request;
+            vals=dict(line.split('=',1) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if '=' in line);
+            token=vals['TELEGRAM_BOT_TOKEN'];
+            req=urllib.request.Request(f'https://api.telegram.org/bot{token}/getMe', method='GET');
+            data=json.loads(urllib.request.urlopen(req, timeout=10).read().decode('utf-8'));
+            assert data.get('ok') is True
+          - "{{ wazuh_ai_telegram_env_file }}"
+      changed_when: false
+      no_log: true
+      when:
+        - wazuh_ai_telegram_enabled | bool
+        - wazuh_ai_telegram_validate_api | bool
+
+    - name: Configure Telegram notifier timer opt-in state
+      ansible.builtin.systemd:
+        name: wazuh-ai-telegram-notifier.timer
+        enabled: "{{ wazuh_ai_telegram_enabled | bool }}"
+        state: "{{ 'started' if wazuh_ai_telegram_enabled | bool else 'stopped' }}"
+        daemon_reload: true
+      when: not ansible_check_mode
+
+    - name: Read Telegram notifier next scheduled run
+      ansible.builtin.command:
+        cmd: systemctl show wazuh-ai-telegram-notifier.timer --property=NextElapseUSecMonotonic --value
+      register: telegram_timer_next_run
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - wazuh_ai_telegram_enabled | bool
+
+    - name: Prime an active Telegram timer with no next run
+      ansible.builtin.systemd:
+        name: wazuh-ai-telegram-notifier.service
+        state: started
+      when:
+        - not ansible_check_mode
+        - wazuh_ai_telegram_enabled | bool
+        - telegram_timer_next_run.stdout | trim in ['', 'infinity', '0']
+
     - name: Enable and start shadow collector
       ansible.builtin.systemd:
         name: wazuh-ai-shadow.service
@@ -94,14 +203,34 @@
             result=json.loads(enrichment)
             assert result['notification'] is False and result['automated_action'] is False
         report=json.load(open('/var/lib/wazuh-ai-shadow/metrics.json'))
-        assert {'events_total','events_pending','events_enriched','duplicate_rate','redaction_leak_count','latency_seconds_p95','event_loss_indicators'} <= set(report)
+        assert {'events_total','events_pending','events_enriched','duplicate_rate','redaction_leak_count','latency_seconds_p95','event_loss_indicators','notification_pending','notification_sent','notification_error'} <= set(report)
         assert report['redaction_leak_count'] == 0
         assert report['duplicate_rate'] >= 0
         assert report['event_loss_indicators']['invalid_json_total'] >= 0
+        assert report['notification_sent'] >= 0
+        assert report['notification_error'] >= 0
         PY
       args:
         executable: /bin/bash
       changed_when: false
+
+    - name: Verify Telegram notifier remains opt-in by default
+      ansible.builtin.command:
+        cmd: systemctl is-enabled wazuh-ai-telegram-notifier.timer
+      register: telegram_timer_enabled
+      changed_when: false
+      failed_when: telegram_timer_enabled.stdout | trim != ('enabled' if wazuh_ai_telegram_enabled | bool else 'disabled')
+      when: not ansible_check_mode
+
+    - name: Verify enabled Telegram notifier has a next run
+      ansible.builtin.command:
+        cmd: systemctl show wazuh-ai-telegram-notifier.timer --property=NextElapseUSecMonotonic --value
+      register: telegram_timer_verified_next_run
+      changed_when: false
+      failed_when: telegram_timer_verified_next_run.stdout | trim in ['', 'infinity', '0']
+      when:
+        - not ansible_check_mode
+        - wazuh_ai_telegram_enabled | bool
   handlers:
     - name: Restart shadow collector
       ansible.builtin.systemd:

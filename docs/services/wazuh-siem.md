@@ -55,4 +55,8 @@ ansible linux_managed:wazuh_server -b -m command -a 'systemctl --failed --no-leg
 - Wazuh manager에 남은 폐기 VM agent는 `/var/ossec/bin/manage_agents -r <ID>`로 제거하되, `agent_control -l`에서 이름과 상태를 먼저 확인한다.
 - Keycloak은 현재 파일 로그가 아니라 systemd journal에 로그를 남기므로 journald 수집을 기준으로 한다.
 - 향후 AI 방어형 분석은 Wazuh alert를 우선 정규화한 뒤 요약/분류/대응 추천 단계로 붙인다.
+- Kali 기반 endpoint 검증은 `docs/operations/kali-purple-team-validation.md`의 scope와 stop condition을 따른다. 초기 target은 `ODJ-VERIFY01` 한 대로 제한한다.
+- Telegram 같은 외부 알림은 High/Critical analyst notification으로만 사용하며 bot token, chat ID, webhook URL은 repo에 저장하지 않는다.
 Hardening, custom detection, AI pipeline의 상세 설계는 docs/services/wazuh-hardening-ai-defense.md를 기준으로 한다.
+
+Telegram 전송은 `wazuh-ai-telegram-notifier.timer`로 분리되어 있으며 기본값은 disabled다. `wazuh_ai_telegram_enabled=true`와 외부 secret 주입이 모두 준비된 뒤에만 켠다.

@@ -1,0 +1,1 @@
+{"win":{"system":{"providerName":"Microsoft-Windows-Security-Auditing","eventID":"4625","channel":"Security","computer":"ODJ-VERIFY01.toss.lan"},"eventdata":{"targetUserName":"lab.user","ipAddress":"192.168.0.90","logonType":"3","status":"0xC000006D","subStatus":"0xC000006A","processName":"C:\\Windows\\System32\\svchost.exe"}},"agent":{"name":"ODJ-VERIFY01"}}

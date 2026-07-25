@@ -1,0 +1,1 @@
+Jul  4 12:00:00 mail01 dovecot: imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<alice>, method=PLAIN, rip=192.0.2.30, lip=192.0.2.80, TLS

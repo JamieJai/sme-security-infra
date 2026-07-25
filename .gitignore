@@ -16,6 +16,7 @@ id_rsa*
 .DS_Store
 *.bak
 *.log
+!ansible/files/wazuh/fixtures/*.log
 
 # Ansible
 ansible/*.retry

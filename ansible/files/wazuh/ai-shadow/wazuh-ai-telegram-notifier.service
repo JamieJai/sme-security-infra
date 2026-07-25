@@ -1,0 +1,24 @@
+[Unit]
+Description=Wazuh AI shadow Telegram notifier
+After=network-online.target wazuh-ai-shadow.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wazuh-ai-shadow
+Group=wazuh
+EnvironmentFile=-/etc/wazuh-ai-shadow/telegram.env
+ExecStart=/usr/local/lib/wazuh-ai-shadow/wazuh_ai_shadow.py --send-telegram-once
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/wazuh-ai-shadow
+ReadOnlyPaths=/etc/wazuh-ai-shadow
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true

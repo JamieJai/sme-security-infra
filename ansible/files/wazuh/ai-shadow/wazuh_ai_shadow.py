@@ -9,6 +9,8 @@ import os
 import re
 import sqlite3
 import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +18,8 @@ SAFE_DATA_KEYS = {"srcip", "dstip", "srcport", "dstport", "srcuser", "dstuser", 
 SECRET_KEY = re.compile(r"password|passwd|secret|token|cookie|authorization|body|credential", re.I)
 EMAIL = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 MAX_TEXT = 512
+NOTIFY_SEVERITIES = {"high", "critical"}
+
 
 
 def text(value):
@@ -61,6 +65,10 @@ def connect(path):
         status TEXT NOT NULL DEFAULT 'pending', enrichment_json TEXT, created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS events_pending ON events(status, created_at);
       CREATE INDEX IF NOT EXISTS events_correlation ON events(correlation_key, event_epoch);
+      CREATE TABLE IF NOT EXISTS notifications (
+        event_id TEXT PRIMARY KEY REFERENCES events(id), status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, sent_at INTEGER, last_error TEXT);
+      CREATE INDEX IF NOT EXISTS notifications_status ON notifications(status, created_at);
     """)
     columns = {row[1] for row in db.execute("PRAGMA table_info(events)")}
     if "enriched_at" not in columns:
@@ -156,6 +164,7 @@ def enrich_once(db, limit=500):
         count = db.execute("SELECT count(*) FROM events WHERE correlation_key=? AND event_epoch BETWEEN ? AND ?", (key, epoch - 300, epoch)).fetchone()[0]
         level = event["rule"]["level"]
         severity = "critical" if level >= 12 else "high" if level >= 10 else "medium" if level >= 7 else "low"
+        notification_candidate = severity in NOTIFY_SEVERITIES
         enrichment = {
             "mode": "shadow",
             "engine": "deterministic-v1",
@@ -163,12 +172,18 @@ def enrich_once(db, limit=500):
             "correlated_5m": count,
             "summary": f"rule={event['rule']['id']} agent={event['agent']['name']} count_5m={count}",
             "notification": False,
+            "notification_candidate": notification_candidate,
             "automated_action": False,
         }
         db.execute(
             "UPDATE events SET status='enriched',enrichment_json=?,enriched_at=? WHERE id=?",
             (json.dumps(enrichment, sort_keys=True), now, event_id),
         )
+        if notification_candidate:
+            db.execute(
+                "INSERT OR IGNORE INTO notifications(event_id,status,created_at) VALUES(?,?,?)",
+                (event_id, "pending", now),
+            )
     metric_add(db, "enriched", len(rows))
     db.commit()
     return len(rows)
@@ -204,8 +219,95 @@ def redaction_leak_count(db):
     return leaks
 
 
+def load_env_file(path):
+    values = {}
+    if not path:
+        return values
+    env_path = Path(path)
+    if not env_path.exists():
+        return values
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('\"').strip("'")
+    return values
+
+
+def telegram_message(event, enrichment):
+    fields = [
+        "Wazuh alert candidate",
+        f"severity={enrichment.get('severity', 'unknown')} rule={event['rule']['id']}",
+        f"agent={event['agent']['name']} location={event.get('location', '')}",
+        f"summary={enrichment.get('summary', '')}",
+        f"description={event['rule'].get('description', '')}",
+    ]
+    data = event.get("data", {})
+    if data:
+        fields.append("data=" + json.dumps(data, sort_keys=True))
+    return text("\n".join(fields))
+
+
+def send_telegram_message(token, chat_id, message, timeout=10):
+    encoded = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode()
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=encoded,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read(4096)
+    result = json.loads(body.decode("utf-8"))
+    if not result.get("ok"):
+        raise RuntimeError(result)
+
+
+def process_notifications(db, token=None, chat_id=None, limit=20, dry_run=False):
+    rows = db.execute(
+        """
+        SELECT n.event_id,e.event_json,e.enrichment_json
+        FROM notifications n JOIN events e ON e.id=n.event_id
+        WHERE n.status='pending'
+        ORDER BY n.created_at,n.event_id LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    if not rows:
+        return 0
+    now = int(time.time())
+    if not token or not chat_id:
+        metric_add(db, "notification_config_missing")
+        db.commit()
+        return 0
+    processed = 0
+    for event_id, payload, enrichment_payload in rows:
+        event = json.loads(payload)
+        enrichment = json.loads(enrichment_payload or "{}")
+        message = telegram_message(event, enrichment)
+        try:
+            if not dry_run:
+                send_telegram_message(token, chat_id, message)
+            status = "dry_run" if dry_run else "sent"
+            db.execute(
+                "UPDATE notifications SET status=?,attempts=attempts+1,sent_at=?,last_error=NULL WHERE event_id=?",
+                (status, now, event_id),
+            )
+            processed += 1
+        except Exception as exc:
+            db.execute(
+                "UPDATE notifications SET status='error',attempts=attempts+1,last_error=? WHERE event_id=?",
+                (text(exc), event_id),
+            )
+    metric_add(db, "notifications_processed", processed)
+    db.commit()
+    return processed
+
+
 def build_report(db):
     status_counts = dict(db.execute("SELECT status,count(*) FROM events GROUP BY status").fetchall())
+    notification_counts = dict(db.execute("SELECT status,count(*) FROM notifications GROUP BY status").fetchall())
     total_events = sum(status_counts.values())
     latencies = [row[0] for row in db.execute("SELECT enriched_at-created_at FROM events WHERE enriched_at IS NOT NULL AND enriched_at >= created_at")]
     seen = metric_get(db, "seen")
@@ -228,6 +330,11 @@ def build_report(db):
         "invalid_json_total": invalid_json,
         "trimmed_total": metric_get(db, "trimmed"),
         "backpressure_skips_total": metric_get(db, "backpressure_skips"),
+        "notification_pending": notification_counts.get("pending", 0),
+        "notification_sent": notification_counts.get("sent", 0),
+        "notification_error": notification_counts.get("error", 0),
+        "notification_dry_run": notification_counts.get("dry_run", 0),
+        "notification_config_missing_total": metric_get(db, "notification_config_missing"),
         "redaction_leak_count": redaction_leak_count(db),
         "latency_seconds_p50": percentile(latencies, 0.50),
         "latency_seconds_p95": percentile(latencies, 0.95),
@@ -254,6 +361,12 @@ def run(args):
     if args.report:
         write_report(db, args.report_output)
         return
+    if args.send_telegram_once:
+        env = load_env_file(args.telegram_env_file)
+        token = args.telegram_bot_token or os.environ.get("TELEGRAM_BOT_TOKEN") or env.get("TELEGRAM_BOT_TOKEN")
+        chat_id = args.telegram_chat_id or os.environ.get("TELEGRAM_CHAT_ID") or env.get("TELEGRAM_CHAT_ID")
+        process_notifications(db, token=token, chat_id=chat_id, limit=args.notification_limit, dry_run=args.telegram_dry_run)
+        return
     while True:
         collect_once(db, args.source, args.max_events, args.start_at_end)
         enrich_once(db)
@@ -275,6 +388,12 @@ def parse_args():
     p.add_argument("--start-at-end", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--report", action="store_true")
     p.add_argument("--report-output")
+    p.add_argument("--send-telegram-once", action="store_true")
+    p.add_argument("--telegram-env-file", default="/etc/wazuh-ai-shadow/telegram.env")
+    p.add_argument("--telegram-bot-token")
+    p.add_argument("--telegram-chat-id")
+    p.add_argument("--telegram-dry-run", action="store_true")
+    p.add_argument("--notification-limit", type=int, default=20)
     return p.parse_args()
 
 

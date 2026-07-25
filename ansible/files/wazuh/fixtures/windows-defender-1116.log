@@ -1,0 +1,1 @@
+{"win":{"system":{"providerName":"Microsoft-Windows-Windows Defender","eventID":"1116","channel":"Microsoft-Windows-Windows Defender/Operational","computer":"ODJ-VERIFY01.toss.lan"},"eventdata":{"threatName":"EICAR_Test_File","severityName":"Severe","path":"C:\\Users\\lab.user\\Downloads\\eicar.com.txt"}},"agent":{"name":"ODJ-VERIFY01"}}

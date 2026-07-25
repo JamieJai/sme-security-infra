@@ -1,0 +1,1 @@
+{"reqId":"fixture","level":2,"time":"2026-07-04T00:00:00+00:00","remoteAddr":"192.0.2.20","user":"alice","app":"core","method":"POST","url":"/login","message":"Login failed: alice (Remote IP: 192.0.2.20)"}

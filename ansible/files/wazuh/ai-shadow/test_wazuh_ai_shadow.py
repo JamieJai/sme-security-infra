@@ -23,7 +23,8 @@ class ShadowTests(unittest.TestCase):
         self.assertTrue(all("never-store" not in x[0] and "Authorization" not in x[0] and "<redacted-email>" in x[0] for x in rows))
         self.assertEqual(shadow.enrich_once(self.db),2)
         result=json.loads(self.db.execute("select enrichment_json from events limit 1").fetchone()[0])
-        self.assertEqual(result["correlated_5m"],2); self.assertFalse(result["notification"]); self.assertFalse(result["automated_action"])
+        self.assertEqual(result["correlated_5m"],2); self.assertFalse(result["notification"]); self.assertTrue(result["notification_candidate"]); self.assertFalse(result["automated_action"])
+        self.assertEqual(self.db.execute("select count(*) from notifications where status='pending'").fetchone()[0],2)
     def test_rotation_and_bounded_pending_spool(self):
         self.write([self.event("1"),self.event("2"),self.event("3")])
         self.assertEqual(shadow.collect_once(self.db,self.source,2,False),2)
@@ -46,5 +47,21 @@ class ShadowTests(unittest.TestCase):
         self.assertEqual(report["redaction_leak_count"],0)
         self.assertIsNotNone(report["latency_seconds_p95"])
         self.assertIn("event_loss_indicators", report)
+
+    def test_notification_dry_run_and_missing_config(self):
+        self.write([self.event()])
+        self.assertEqual(shadow.collect_once(self.db,self.source,100,False),1)
+        self.assertEqual(shadow.enrich_once(self.db),1)
+        self.assertEqual(shadow.process_notifications(self.db),0)
+        report = shadow.build_report(self.db)
+        self.assertEqual(report["notification_pending"],1)
+        self.assertEqual(report["notification_config_missing_total"],1)
+        self.assertEqual(shadow.process_notifications(self.db, token="test", chat_id="123", dry_run=True),1)
+        report = shadow.build_report(self.db)
+        self.assertEqual(report["notification_pending"],0)
+        self.assertEqual(report["notification_dry_run"],1)
+        message = shadow.telegram_message(self.event(), {"severity":"high", "summary":"check"})
+        self.assertIn("Wazuh alert candidate", message)
+        self.assertLessEqual(len(message), shadow.MAX_TEXT)
 
 if __name__ == "__main__": unittest.main()
