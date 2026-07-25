@@ -119,3 +119,22 @@ windows_vms = {
     tags        = ["windows", "management", "odj"]
   }
 }
+
+# Optional Kali VM for scoped purple-team validation.
+# Upload the Kali installer ISO to Proxmox local ISO storage first.
+kali_vms = {
+  kali01 = {
+    name               = "kali01"
+    vmid               = 111
+    target_node        = "pve01"
+    cores              = 2
+    memory             = 4096
+    disk_size          = "40G"
+    storage            = "local-lvm"
+    bridge             = "vmbr0"
+    installer_iso      = "local:iso/kali-linux-2026.2-installer-amd64.iso"
+    installer_attached = true
+    qemu_agent_enabled = false
+    tags               = ["security", "kali", "purple-team"]
+  }
+}

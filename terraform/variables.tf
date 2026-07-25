@@ -54,3 +54,21 @@ variable "windows_vms" {
   }))
   default = {}
 }
+
+variable "kali_vms" {
+  type = map(object({
+    name               = string
+    vmid               = number
+    target_node        = string
+    cores              = number
+    memory             = number
+    disk_size          = string
+    storage            = string
+    bridge             = string
+    installer_iso      = string
+    installer_attached = optional(bool, true)
+    qemu_agent_enabled = optional(bool, false)
+    tags               = optional(list(string), [])
+  }))
+  default = {}
+}

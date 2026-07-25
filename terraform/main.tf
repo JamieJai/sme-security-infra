@@ -39,3 +39,22 @@ module "windows_vm" {
   tpm_storage = each.value.tpm_storage
   tags        = each.value.tags
 }
+
+module "kali_vm" {
+  source = "./modules/kali-vm"
+
+  for_each = var.kali_vms
+
+  vm_name            = each.value.name
+  vm_id              = each.value.vmid
+  target_node        = each.value.target_node
+  cores              = each.value.cores
+  memory             = each.value.memory
+  disk_size          = each.value.disk_size
+  storage            = each.value.storage
+  bridge             = each.value.bridge
+  installer_iso      = each.value.installer_iso
+  installer_attached = each.value.installer_attached
+  qemu_agent_enabled = each.value.qemu_agent_enabled
+  tags               = each.value.tags
+}
