@@ -51,6 +51,10 @@ ansible linux_managed:wazuh_server -b -m command -a 'systemctl --failed --no-leg
 
 - Linux agent 배포는 `playbooks/wazuh-agent-deploy.yml`을 기준으로 하고 `linux_managed` inventory group만 대상으로 한다.
 - Windows agent 배포는 `playbooks/wazuh-agent-windows.yml`을 기준으로 하며 `windows_management`와 `windows_endpoint_pilot`을 대상으로 한다. Windows 대상은 `localadmin` OpenSSH key auth와 관리자 권한이 선행 조건이다.
+- 같은 playbook은 Wazuh `windows` group의 shared `agent.conf`에 PowerShell Operational과 Microsoft Defender Operational EventChannel 수집을 배포한다. Candidate를 `verify-agent-conf`로 먼저 검증하고 active file backup은 sync directory 밖의 `/var/backups/wazuh-windows-agent-conf/`에 저장한다. Ansible 기본 timestamp backup은 파일명에 colon이 들어가 Windows agent unmerge를 실패시키므로 shared directory 안에서 사용하지 않는다.
+- Live PowerShell 4104는 Wazuh built-in `918xx` rule tree를 사용한다. Custom `100504`는 JSON fixture/integration marker 전용이며 live 내장 심각도를 덮어쓰지 않는다.
+- Defender Event ID `1116`은 built-in rule `62123`과 custom rule `100505` 모두 level 12를 유지한다. EICAR를 포함한 test artifact 생성은 별도 승인 전에는 실행하지 않는다.
+- `playbooks/wazuh-agent-windows.yml`의 `wazuh_windows_script_block_logging_state` 기본값은 `observe`다. `enabled` 또는 rollback용 `disabled`를 명시한 실행만 endpoint registry를 변경한다. Script Block Logging은 명령 내용이 보안 로그로 수집될 수 있으므로 change window와 민감정보 노출 검토 후 승인한다.
 - 역할별 Linux 로그 수집은 `playbooks/wazuh-agent-logs.yml`로 관리한다.
 - Wazuh manager에 남은 폐기 VM agent는 `/var/ossec/bin/manage_agents -r <ID>`로 제거하되, `agent_control -l`에서 이름과 상태를 먼저 확인한다.
 - Keycloak은 현재 파일 로그가 아니라 systemd journal에 로그를 남기므로 journald 수집을 기준으로 한다.
@@ -60,3 +64,19 @@ ansible linux_managed:wazuh_server -b -m command -a 'systemctl --failed --no-leg
 Hardening, custom detection, AI pipeline의 상세 설계는 docs/services/wazuh-hardening-ai-defense.md를 기준으로 한다.
 
 Telegram 전송은 `wazuh-ai-telegram-notifier.timer`로 분리되어 있으며 기본값은 disabled다. `wazuh_ai_telegram_enabled=true`와 외부 secret 주입이 모두 준비된 뒤에만 켠다.
+
+Pilot endpoint의 PowerShell Script Block Logging 정책을 승인 후 적용하거나 rollback할 때만 다음 명령을 사용한다.
+
+```bash
+cd /home/sysadmin/homelab-infra/ansible
+
+ansible-playbook -i inventory/hosts playbooks/wazuh-agent-windows.yml \
+  --limit odj-verify01 \
+  -e wazuh_windows_script_block_logging_state=enabled
+
+ansible-playbook -i inventory/hosts playbooks/wazuh-agent-windows.yml \
+  --limit odj-verify01 \
+  -e wazuh_windows_script_block_logging_state=disabled
+```
+
+기본 `observe` 실행은 해당 registry를 생성하거나 삭제하지 않는다. 적용 전후 `HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging`의 `EnableScriptBlockLogging` 값을 기록한다.

@@ -1,0 +1,1 @@
+{"win":{"system":{"providerName":"Microsoft-Windows-Security-Auditing","eventID":"4624","channel":"Security","computer":"ODJ-VERIFY01.toss.lan"},"eventdata":{"targetUserName":"lab.service","ipAddress":"192.168.0.40","logonType":"3","logonProcessName":"NtLmSsp","authenticationPackageName":"NTLM"}},"agent":{"name":"ODJ-VERIFY01"}}

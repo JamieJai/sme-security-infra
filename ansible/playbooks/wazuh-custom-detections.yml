@@ -67,6 +67,7 @@
             owner: root
             group: wazuh
             mode: "0640"
+            backup: true
           notify: Restart Wazuh manager
 
         - name: Install SME custom rules
@@ -76,6 +77,7 @@
             owner: root
             group: wazuh
             mode: "0640"
+            backup: true
           notify: Restart Wazuh manager
 
         - name: Validate Wazuh analysis configuration
@@ -127,6 +129,29 @@
         - name: Report rolled back custom detection deployment
           ansible.builtin.fail:
             msg: Custom detection validation failed; previous decoder and rules were restored.
+
+    - name: Apply validated custom detection changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for the Wazuh agent receiver after restart
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 1514
+        state: started
+        timeout: 45
+
+    - name: Wait for every managed Wazuh agent to reconnect
+      ansible.builtin.command:
+        cmd: /var/ossec/bin/agent_control -lc
+      register: wazuh_connected_agents
+      changed_when: false
+      until: >-
+        wazuh_connected_agents.stdout is regex(
+          '(?im)^.*\\b' + item + '\\b.*\\bActive\\b'
+        )
+      retries: 12
+      delay: 5
+      loop: "{{ groups['all'] | difference(groups['wazuh_server']) }}"
 
   handlers:
     - name: Restart Wazuh manager

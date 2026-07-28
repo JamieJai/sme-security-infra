@@ -5,6 +5,10 @@
   gather_facts: false
   vars:
     wazuh_windows_agent_group: "windows"
+    wazuh_windows_shared_config: /var/ossec/etc/shared/windows/agent.conf
+    wazuh_windows_shared_candidate: /var/ossec/tmp/windows-agent.conf.candidate
+    wazuh_windows_shared_backup_dir: /var/backups/wazuh-windows-agent-conf
+    wazuh_windows_shared_backup_stamp: "{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
   tasks:
     - name: Create Wazuh Windows agent group
       ansible.builtin.command:
@@ -20,6 +24,96 @@
         - wazuh_windows_group_create.rc != 0
         - "'already exists' not in (wazuh_windows_group_create.stdout + wazuh_windows_group_create.stderr)"
 
+    - name: Render candidate Windows EventChannel collection config
+      ansible.builtin.template:
+        src: ../templates/wazuh-windows-agent.conf.j2
+        dest: "{{ wazuh_windows_shared_candidate }}"
+        owner: root
+        group: wazuh
+        mode: "0640"
+      when: not ansible_check_mode
+
+    - name: Validate candidate Windows EventChannel collection config
+      ansible.builtin.command:
+        argv:
+          - /var/ossec/bin/verify-agent-conf
+          - -f
+          - "{{ wazuh_windows_shared_candidate }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Read current Windows shared config state
+      ansible.builtin.stat:
+        path: "{{ wazuh_windows_shared_config }}"
+        checksum_algorithm: sha256
+      register: wazuh_windows_shared_current
+      when: not ansible_check_mode
+
+    - name: Read candidate Windows shared config state
+      ansible.builtin.stat:
+        path: "{{ wazuh_windows_shared_candidate }}"
+        checksum_algorithm: sha256
+      register: wazuh_windows_shared_candidate_stat
+      when: not ansible_check_mode
+
+    - name: Create Windows shared config backup directory
+      ansible.builtin.file:
+        path: "{{ wazuh_windows_shared_backup_dir }}"
+        state: directory
+        owner: root
+        group: wazuh
+        mode: "0750"
+      when: not ansible_check_mode
+
+    - name: Back up changed Windows shared config outside the sync directory
+      ansible.builtin.copy:
+        src: "{{ wazuh_windows_shared_config }}"
+        remote_src: true
+        dest: "{{ wazuh_windows_shared_backup_dir }}/agent.conf.{{ wazuh_windows_shared_backup_stamp }}"
+        owner: root
+        group: wazuh
+        mode: "0640"
+      when:
+        - not ansible_check_mode
+        - wazuh_windows_shared_current.stat.exists
+        - wazuh_windows_shared_current.stat.checksum != wazuh_windows_shared_candidate_stat.stat.checksum
+
+    - name: Install validated Windows EventChannel collection config
+      ansible.builtin.copy:
+        src: "{{ wazuh_windows_shared_candidate }}"
+        remote_src: true
+        dest: "{{ wazuh_windows_shared_config }}"
+        owner: wazuh
+        group: wazuh
+        mode: "0660"
+      when: not ansible_check_mode
+
+    - name: Validate installed Windows EventChannel collection config
+      ansible.builtin.command:
+        argv:
+          - /var/ossec/bin/verify-agent-conf
+          - -f
+          - "{{ wazuh_windows_shared_config }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Find unsafe backup files in the Windows shared sync directory
+      ansible.builtin.find:
+        paths: "{{ wazuh_windows_shared_config | dirname }}"
+        patterns: "*~"
+        file_type: file
+      register: wazuh_windows_unsafe_shared_backups
+      when: not ansible_check_mode
+
+    - name: Require a Windows-compatible shared sync directory
+      ansible.builtin.assert:
+        that:
+          - wazuh_windows_unsafe_shared_backups.matched == 0
+        fail_msg: >-
+          Backup files must not remain under {{ wazuh_windows_shared_config | dirname }}.
+          Windows agents cannot unmerge Ansible timestamp backup names containing colons.
+      when: not ansible_check_mode
+
 - name: Install and verify Wazuh agent on Windows endpoints
   hosts: windows_management:windows_endpoint_pilot
   become: false
@@ -31,9 +125,33 @@
     wazuh_windows_agent_url: "https://packages.wazuh.com/4.x/windows/{{ wazuh_windows_agent_msi }}"
     wazuh_windows_agent_group: "windows"
     wazuh_windows_agent_name: "{{ inventory_hostname | upper }}"
+    wazuh_windows_script_block_logging_state: observe
   tasks:
     - name: Verify Windows endpoint is reachable
       ansible.windows.win_ping:
+
+    - name: Validate PowerShell Script Block Logging policy state
+      ansible.builtin.assert:
+        that:
+          - wazuh_windows_script_block_logging_state in ['observe', 'enabled', 'disabled']
+        fail_msg: >-
+          wazuh_windows_script_block_logging_state must be observe, enabled, or disabled.
+
+    - name: Enable PowerShell Script Block Logging policy
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging
+        name: EnableScriptBlockLogging
+        data: 1
+        type: dword
+        state: present
+      when: wazuh_windows_script_block_logging_state == 'enabled'
+
+    - name: Remove the managed PowerShell Script Block Logging policy
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging
+        name: EnableScriptBlockLogging
+        state: absent
+      when: wazuh_windows_script_block_logging_state == 'disabled'
 
     - name: Install Wazuh agent package
       ansible.windows.win_package:

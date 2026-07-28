@@ -53,8 +53,18 @@
     <group>samba,active_directory,replication,authentication_failed,</group>
   </rule>
 
-  <rule id="100501" level="7">
+  <rule id="100500" level="0">
     <decoded_as>json</decoded_as>
+    <field name="win.system.providerName">^Microsoft-Windows-</field>
+    <field name="win.system.channel">\.+</field>
+    <description>Windows JSON fixture or integration event.</description>
+    <group>windows,</group>
+  </rule>
+
+  <rule id="100501" level="7">
+    <if_sid>60001,100500</if_sid>
+    <field name="win.system.providerName">^Microsoft-Windows-Security-Auditing$</field>
+    <field name="win.system.channel">^Security$</field>
     <field name="win.system.eventID">^4625$</field>
     <description>Windows failed logon on $(win.system.computer) for $(win.eventdata.targetUserName) from $(win.eventdata.ipAddress).</description>
     <mitre><id>T1110</id></mitre>
@@ -70,23 +80,30 @@
   </rule>
 
   <rule id="100503" level="3">
-    <decoded_as>json</decoded_as>
+    <if_sid>60001,100500</if_sid>
+    <field name="win.system.providerName">^Microsoft-Windows-Security-Auditing$</field>
+    <field name="win.system.channel">^Security$</field>
     <field name="win.system.eventID">^4624$</field>
+    <field name="win.eventdata.logonType">^2$|^10$</field>
     <description>Windows interactive logon on $(win.system.computer) for $(win.eventdata.targetUserName).</description>
     <group>windows,authentication_success,</group>
   </rule>
 
-  <rule id="100504" level="8">
-    <decoded_as>json</decoded_as>
+  <rule id="100504" level="5">
+    <if_sid>100500</if_sid>
+    <field name="win.system.providerName">^Microsoft-Windows-PowerShell$</field>
     <field name="win.system.eventID">^4104$</field>
     <field name="win.system.channel">^Microsoft-Windows-PowerShell/Operational$</field>
-    <description>Windows PowerShell script block logging event on $(win.system.computer).</description>
+    <field name="win.eventdata.scriptBlockText" type="pcre2">WAZUH_4104_VALIDATION_[A-Z0-9_-]+</field>
+    <description>Windows PowerShell 4104 JSON integration validation marker observed on $(win.system.computer).</description>
     <mitre><id>T1059.001</id></mitre>
-    <group>windows,powershell,execution,</group>
+    <group>windows,powershell,integration_validation,</group>
   </rule>
 
-  <rule id="100505" level="10">
-    <decoded_as>json</decoded_as>
+  <rule id="100505" level="12">
+    <if_sid>62123,100500</if_sid>
+    <field name="win.system.providerName">^Microsoft-Windows-Windows Defender$</field>
+    <field name="win.system.channel">^Microsoft-Windows-Windows Defender/Operational$</field>
     <field name="win.system.eventID">^1116$</field>
     <description>Microsoft Defender detected malware on $(win.system.computer): $(win.eventdata.threatName).</description>
     <mitre><id>T1204</id></mitre>
