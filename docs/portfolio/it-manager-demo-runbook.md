@@ -69,7 +69,32 @@ printf 'Demo evidence: %s\n' "$demo_dir"
 
 `--execute`는 live lab owner가 read-only Ansible 진단을 수행할 때만 사용한다.
 
-## 4. 2분: 관리자 권한 없는 앱 배포
+## 4. 1분: 변경 없는 오프보딩 plan
+
+임시 DB에 endpoint asset을 등록한 뒤 plan mode가 접근 또는 자산 상태를 변경하지
+않고 회수 대상을 식별하는 흐름을 보여준다.
+
+```bash
+OPS_DB="$demo_dir/ops.sqlite" ./scripts/register-endpoint.sh \
+  --employee-id DEMO-001 \
+  --username demo.user \
+  --computer-name PC-DEMO01 \
+  --output-dir "$demo_dir"
+
+OPS_DB="$demo_dir/ops.sqlite" ./scripts/offboard-employee.sh \
+  --username demo.user \
+  --ticket-ref OFF-DEMO-001 \
+  --reason "Portfolio fixture" \
+  --output-dir "$demo_dir"
+```
+
+강조할 내용:
+
+- plan mode에서는 AD, Keycloak, Nextcloud와 asset status가 바뀌지 않는다.
+- execute에는 ticket, approver, exact username confirmation이 필요하다.
+- 삭제 대신 disable-first와 별도 recovery 절차를 사용한다.
+
+## 5. 2분: 관리자 권한 없는 앱 배포
 
 ```bash
 sed -n '254,307p' docs/portfolio/endpoint-app-deployment-system-install.md
@@ -82,7 +107,7 @@ sed -n '254,307p' docs/portfolio/endpoint-app-deployment-system-install.md
 3. SYSTEM context와 pilot group을 선택한 이유
 4. reboot와 idempotency까지 검증한 이유
 
-## 5. 2분: 실패를 숨기지 않는 Wazuh 운영
+## 6. 2분: 실패를 숨기지 않는 Wazuh 운영
 
 ```bash
 sed -n '166,218p' \
@@ -99,7 +124,7 @@ sed -n '166,218p' \
 핵심은 장애가 없었다는 주장이 아니라 장애를 관찰하고 성공 기준을 개선했다는
 점이다.
 
-## 6. 1분: 저장소 자체 검증
+## 7. 1분: 저장소 자체 검증
 
 ```bash
 ./scripts/portfolio-check.sh
@@ -110,6 +135,7 @@ sed -n '166,218p' \
 - 지원 핵심 문서가 Git tracking 대상인지 확인
 - secret guard 실행
 - 주요 shell syntax
+- 오프보딩 plan 비변경성과 execute safety gate
 - Kali egress guard unit test
 - Wazuh XML parse
 - 핵심 Ansible playbook syntax

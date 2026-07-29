@@ -24,9 +24,13 @@ required_files=(
   docs/portfolio/it-manager-demo-runbook.md
   docs/portfolio/endpoint-app-deployment-system-install.md
   docs/operations/employee-onboarding-runbook.md
+  docs/operations/employee-offboarding-runbook.md
   docs/operations/helpdesk-scenarios.md
   scripts/onboard-employee.sh
+  scripts/offboard-employee.sh
   scripts/helpdesk-diagnose.sh
+  ansible/playbooks/employee-offboarding.yml
+  ansible/playbooks/employee-offboarding-verify.yml
   ansible/playbooks/wazuh-custom-detections.yml
 )
 
@@ -48,6 +52,7 @@ pass "secret guard"
 
 bash -n \
   "$ROOT_DIR/scripts/onboard-employee.sh" \
+  "$ROOT_DIR/scripts/offboard-employee.sh" \
   "$ROOT_DIR/scripts/helpdesk-diagnose.sh" \
   "$ROOT_DIR/scripts/verify-and-report.sh" \
   "$ROOT_DIR/scripts/portfolio-check.sh"
@@ -75,6 +80,9 @@ assert row == ("helpdesk_diagnosis", "demo.user", "planned"), row
 PY_DEMO
 pass "isolated Helpdesk report and evidence record"
 
+python3 -m unittest -q "$ROOT_DIR/tests/test_offboard_employee.py"
+pass "offboarding plan and safety gates"
+
 python3 -m unittest -q "$ROOT_DIR/tests/test_kali_egress_guard.py"
 pass "Kali egress guard unit tests"
 
@@ -97,6 +105,10 @@ vault_args=()
   cd "$ANSIBLE_DIR"
   ansible-playbook -i inventory/hosts --syntax-check \
     playbooks/employee-onboarding-verify.yml "${vault_args[@]}"
+  ansible-playbook -i inventory/hosts --syntax-check \
+    playbooks/employee-offboarding.yml "${vault_args[@]}"
+  ansible-playbook -i inventory/hosts --syntax-check \
+    playbooks/employee-offboarding-verify.yml "${vault_args[@]}"
   ansible-playbook -i inventory/hosts --syntax-check \
     playbooks/wazuh-agent-windows.yml "${vault_args[@]}"
   ansible-playbook -i inventory/hosts --syntax-check \

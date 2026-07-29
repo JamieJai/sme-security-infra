@@ -1,0 +1,247 @@
+---
+- name: Validate employee offboarding authorization
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+  vars:
+    offboarding_protected_users:
+      - administrator
+      - guest
+      - krbtgt
+      - sysadmin
+  tasks:
+    - name: Require an explicitly authorized offboarding request
+      ansible.builtin.assert:
+        that:
+          - offboarding_authorized | default(false) | bool
+          - offboard_user_name is defined
+          - offboard_user_name is match('^[a-z0-9][a-z0-9._-]{0,63}$')
+          - offboard_confirm_user | default('') == offboard_user_name
+          - offboarding_ticket_ref | default('') | length > 0
+          - offboarding_approved_by | default('') | length > 0
+          - offboard_user_name | lower not in offboarding_protected_users
+        fail_msg: >-
+          Offboarding requires authorization, a ticket, an approver, an exact
+          username confirmation, and a non-protected account.
+
+- name: Disable the AD identity and remove managed access groups
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Read the requested AD user
+      ansible.builtin.command:
+        argv: [samba-tool, user, show, "{{ offboard_user_name }}"]
+      register: offboarding_ad_user
+      changed_when: false
+
+    - name: Read the AD user account control value
+      ansible.builtin.set_fact:
+        offboarding_ad_uac: >-
+          {{
+            (
+              offboarding_ad_user.stdout
+              | regex_findall('(?m)^userAccountControl:\\s*(\\d+)\\s*$')
+              | first
+            )
+            | int
+          }}
+
+    - name: Read managed group memberships
+      ansible.builtin.command:
+        argv: [samba-tool, group, listmembers, "{{ item }}"]
+      loop: "{{ nextcloud_oidc_department_groups }}"
+      register: offboarding_managed_group_members
+      changed_when: false
+
+    - name: Remove the user from managed access groups
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - group
+          - removemembers
+          - "{{ item.item }}"
+          - "{{ offboard_user_name }}"
+      loop: "{{ offboarding_managed_group_members.results }}"
+      when: offboard_user_name in item.stdout_lines
+      register: offboarding_group_removal
+      changed_when: true
+
+    - name: Disable the AD user
+      ansible.builtin.command:
+        argv: [samba-tool, user, disable, "{{ offboard_user_name }}"]
+      when: ((offboarding_ad_uac | int) // 2) % 2 == 0
+      register: offboarding_ad_disable
+      changed_when: true
+
+    - name: Show AD containment summary
+      ansible.builtin.debug:
+        msg:
+          - "Account: {{ offboard_user_name }}"
+          - >-
+            Managed groups removed:
+            {{
+              offboarding_managed_group_members.results
+              | selectattr('stdout_lines', 'contains', offboard_user_name)
+              | map(attribute='item')
+              | list
+            }}
+          - >-
+            Previously disabled:
+            {{ (((offboarding_ad_uac | int) // 2) % 2) == 1 }}
+
+- name: Revoke active Keycloak sessions
+  hosts: iam_server
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+  tasks:
+    - name: Read Keycloak admin password from systemd
+      ansible.builtin.shell: >-
+        systemctl show keycloak -p Environment --value
+        | xargs -n1
+        | grep ^KEYCLOAK_ADMIN_PASSWORD=
+        | cut -d= -f2-
+        | tail -1
+      register: offboarding_keycloak_admin_password
+      changed_when: false
+      no_log: true
+
+    - name: Authenticate to Keycloak Admin CLI
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - config
+          - credentials
+          - --server
+          - http://localhost:8080
+          - --realm
+          - master
+          - --user
+          - "{{ keycloak_admin_user }}"
+          - --password
+          - "{{ offboarding_keycloak_admin_password.stdout }}"
+      changed_when: false
+      no_log: true
+
+    - name: Find candidate Keycloak users
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - users
+          - -r
+          - "{{ keycloak_realm }}"
+          - -q
+          - "username={{ offboard_user_name }}"
+          - --fields
+          - id,username
+      register: offboarding_keycloak_users_raw
+      changed_when: false
+
+    - name: Select the exact Keycloak username
+      ansible.builtin.set_fact:
+        offboarding_keycloak_users: >-
+          {{
+            (offboarding_keycloak_users_raw.stdout | from_json)
+            | selectattr('username', 'equalto', offboard_user_name)
+            | list
+          }}
+
+    - name: Reject duplicate exact Keycloak identities
+      ansible.builtin.assert:
+        that:
+          - offboarding_keycloak_users | length <= 1
+        fail_msg: >-
+          Multiple exact Keycloak users matched {{ offboard_user_name }}.
+
+    - name: Read active Keycloak sessions
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - "users/{{ item.id }}/sessions"
+          - -r
+          - "{{ keycloak_realm }}"
+      loop: "{{ offboarding_keycloak_users }}"
+      register: offboarding_keycloak_sessions
+      changed_when: false
+      no_log: true
+
+    - name: Log out the user when Keycloak sessions remain
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - create
+          - "users/{{ item.item.id }}/logout"
+          - -r
+          - "{{ keycloak_realm }}"
+          - -s
+          - "realm={{ keycloak_realm }}"
+          - -s
+          - "user={{ item.item.id }}"
+      loop: "{{ offboarding_keycloak_sessions.results }}"
+      when: (item.stdout | from_json) | length > 0
+      changed_when: true
+      no_log: true
+
+    - name: Report an identity that was not cached in Keycloak
+      ansible.builtin.debug:
+        msg: >-
+          No exact Keycloak user was cached for {{ offboard_user_name }};
+          AD remains the authentication source of truth.
+      when: offboarding_keycloak_users | length == 0
+
+- name: Disable the matching Nextcloud user when present
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+  tasks:
+    - name: Read the matching Nextcloud user
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -u
+          - www-data
+          - php
+          - "{{ nextcloud_occ }}"
+          - user:info
+          - "{{ offboard_user_name }}"
+      register: offboarding_nextcloud_user
+      failed_when: false
+      changed_when: false
+
+    - name: Disable the matching Nextcloud user
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -u
+          - www-data
+          - php
+          - "{{ nextcloud_occ }}"
+          - user:disable
+          - "{{ offboard_user_name }}"
+      when:
+        - offboarding_nextcloud_user.rc == 0
+        - "'enabled: true' in offboarding_nextcloud_user.stdout"
+      changed_when: true
+
+    - name: Report a Nextcloud user that was not provisioned
+      ansible.builtin.debug:
+        msg: >-
+          No local Nextcloud user matched {{ offboard_user_name }}. Keycloak
+          session revocation and the disabled AD source account remain enforced.
+      when: offboarding_nextcloud_user.rc != 0

@@ -16,6 +16,9 @@ Ansible, Terraform, PowerShell, Bash, SQLite
 
 - Samba AD 계정과 부서 그룹 생성부터 Keycloak SSO, Nextcloud 권한, Mail,
   Wazuh baseline 검증까지 연결한 입사자 온보딩 workflow를 구현했습니다.
+- 계정 삭제 없이 AD disable, 부서 그룹 회수, Keycloak session revoke, 자산
+  회수 대기 상태를 기록하는 오프보딩 workflow를 구현하고 fixture로 safety
+  gate를 검증했습니다.
 - 사용자에게 관리자 암호를 제공하지 않고 승인 앱을 설치하도록 컴퓨터 계정 전용
   SMB share와 SYSTEM scheduled task를 설계하고 Windows pilot에서 실제 설치와
   reboot 후 실행까지 검증했습니다.
@@ -47,6 +50,16 @@ Ansible, Terraform, PowerShell, Bash, SQLite
 - 일반 사용자의 권한을 높이지 않고 SYSTEM context에서 승인 앱만 설치합니다.
 - pilot security group으로 범위를 제한하고 실제 설치, detection, 즉시 실행,
   reboot 후 ONSTART 실행을 검증했습니다.
+
+### 퇴사자 오프보딩
+
+- 변경 없는 plan과 승인된 execute 경로를 분리했습니다.
+- AD 계정 disable, 관리 대상 그룹 회수, Keycloak session revoke와 Nextcloud
+  user disable을 하나의 workflow로 연결했습니다.
+- 지급 자산의 기존 상태와 owner를 보존하면서 `recovery_pending`으로 전환하도록
+  설계했습니다.
+- fixture에서 plan의 비변경성, 보호 계정 차단, 승인 gate를 검증했으며 live
+  적용 경험으로 표현하지 않습니다.
 
 ### Wazuh 장애 대응
 

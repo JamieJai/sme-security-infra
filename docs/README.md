@@ -15,6 +15,7 @@
 | IT Manager 플랫폼 방향성을 본다 | [operations/it-manager-platform-roadmap.md](operations/it-manager-platform-roadmap.md) |
 | Endpoint onboarding 고도화 목표를 본다 | [operations/endpoint-onboarding-vision.md](operations/endpoint-onboarding-vision.md) |
 | 신입사원 온보딩 운영 절차를 본다 | [operations/employee-onboarding-runbook.md](operations/employee-onboarding-runbook.md) |
+| 퇴사자 접근 차단과 자산 회수를 계획한다 | [operations/employee-offboarding-runbook.md](operations/employee-offboarding-runbook.md) |
 | 사용자 문의/장애 진단 시나리오를 본다 | [operations/helpdesk-scenarios.md](operations/helpdesk-scenarios.md) |
 | 신규 입사자용 IT 사용 가이드를 본다 | [getting-started/employee-it-onboarding.md](getting-started/employee-it-onboarding.md) |
 | 전체 자동화 목표를 본다 | [getting-started/full-rebuild-roadmap.md](getting-started/full-rebuild-roadmap.md) |
@@ -72,6 +73,12 @@ Endpoint 자산 등록:
 
 ```bash
 ./scripts/register-endpoint.sh --employee-id 20260710-001 --username kim.chulsoo --computer-name PC-2026071001
+```
+
+퇴사자 접근 차단 plan:
+
+```bash
+./scripts/offboard-employee.sh --username kim.chulsoo --ticket-ref OFF-2026-001 --reason "Employment ended"
 ```
 
 Wazuh agent 설치/재배포:

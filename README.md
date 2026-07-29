@@ -15,6 +15,7 @@
 |---|---|
 | 계정·권한 | Samba AD 계정/그룹, Keycloak LDAP federation, OIDC group claim, 부서별 storage 권한 |
 | 입사자 온보딩 | AD 사용자·메일 속성·부서 그룹 생성, 핵심 서비스 검증, Markdown/SQLite 증적 |
+| 퇴사자 오프보딩 | disable-first plan/apply 분리, 부서 권한·SSO session 회수, 자산 회수 대기 증적 |
 | Windows endpoint | Offline Domain Join, 자산 등록, Wazuh agent, pilot 범위 표준 앱 배포 |
 | 권한 분리 | 일반 사용자에게 관리자 암호를 주지 않고 SYSTEM context로 승인 앱 설치 |
 | 사용자 지원 | 6개 helpdesk scenario, read-only 진단, 영향·원인·후속 조치 리포트 |
@@ -52,6 +53,16 @@ TCP 1514 listen과 전체 8개 managed agent의 Active 복귀를 추가했다.
 
 - [Wazuh custom detection runbook](docs/services/wazuh-custom-detections.md)
 - [Kali/Wazuh 검증 handoff](docs/archive/session-handoffs/session-handoff-2026-07-28-kali-egress-enabled.md)
+
+### 4. 삭제하지 않고 복구 가능하게 만든 오프보딩
+
+기본 실행을 변경 없는 plan으로 두고 티켓, 승인자, 사용자명 재확인이 있어야만
+실제 차단을 허용한다. AD disable, 관리 대상 그룹 회수, Keycloak session revoke,
+Nextcloud disable을 검증하고 지급 자산은 기존 상태를 보존한 채
+`recovery_pending`으로 전환한다.
+
+- [퇴사자 오프보딩 runbook](docs/operations/employee-offboarding-runbook.md)
+- [오프보딩 wrapper](scripts/offboard-employee.sh)
 
 ## 아키텍처
 
@@ -111,6 +122,7 @@ flowchart LR
 - Windows 11 test endpoint 2대와 Linux server agent를 포함한 Wazuh 8-agent 운영
 - Windows ODJ, endpoint 자산 등록, pilot 앱 배포와 reboot 검증
 - AD/SSO/Mail/Nextcloud 연동 및 입사자 workflow
+- disable-first 오프보딩 plan, 안전 gate, 자산 회수 상태 전이 fixture 검증
 - helpdesk 진단 리포트, health report, backup/restore 검증
 
 **아직 실무 경험으로 주장하지 않는 범위**

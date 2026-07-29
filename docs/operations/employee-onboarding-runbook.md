@@ -20,7 +20,8 @@ v1에서 제외:
 - 실제 브라우저 기반 OIDC login E2E
 - Jira ticket 자동 상태 변경
 - GitHub PR 자동 생성
-- 계정 offboarding
+- 계정 offboarding은 별도
+  [Employee Offboarding Runbook](employee-offboarding-runbook.md)에서 처리
 
 ## Required Inputs
 
@@ -146,7 +147,10 @@ webhook이 없으면 실패로 처리하지 않고 report에 `notification skipp
 5. Slack 알림 실패는 AD 적용 성공을 rollback하지 않는다. report와 SQLite에는 `partial`로 기록한다.
 6. 부분 성공 상태는 report와 SQLite에 `partial`로 남긴다.
 
-복구 원칙: v1에서는 자동 삭제/rollback을 하지 않는다. 잘못 생성된 계정 disable/delete는 별도 offboarding 또는 recovery 절차로 다룬다.
+복구 원칙: v1에서는 자동 삭제/rollback을 하지 않는다. 잘못 생성된 계정의
+disable과 권한 회수는 별도
+[Employee Offboarding Runbook](employee-offboarding-runbook.md)에서 다루며
+계정 삭제는 자동화하지 않는다.
 
 ## Definition of Done
 
