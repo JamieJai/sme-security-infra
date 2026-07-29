@@ -154,70 +154,68 @@
       changed_when: false
       no_log: true
 
-    - name: Find candidate Keycloak users when sessions exist
-      ansible.builtin.command:
-        argv:
-          - "{{ keycloak_path }}/bin/kcadm.sh"
-          - get
-          - users
-          - -r
-          - "{{ keycloak_realm }}"
-          - -q
-          - "username={{ offboard_user_name }}"
-          - --fields
-          - id,username
-      register: offboarding_keycloak_users_raw
-      changed_when: false
-      when:
-        - (offboarding_keycloak_session_stats.stdout | from_json) | length > 0
-
-    - name: Select the exact Keycloak username
+    - name: Initialize active Keycloak session inventory
       ansible.builtin.set_fact:
-        offboarding_keycloak_users: >-
-          {{
-            (
-              offboarding_keycloak_users_raw.stdout
-              | default('[]')
-              | from_json
-            )
-            | selectattr('username', 'equalto', offboard_user_name)
-            | list
-          }}
+        offboarding_keycloak_sessions: []
 
-    - name: Reject duplicate exact Keycloak identities
-      ansible.builtin.assert:
-        that:
-          - offboarding_keycloak_users | length <= 1
-        fail_msg: >-
-          Multiple exact Keycloak users matched {{ offboard_user_name }}.
-
-    - name: Read active Keycloak sessions
+    - name: Read active user sessions from each client
       ansible.builtin.command:
         argv:
           - "{{ keycloak_path }}/bin/kcadm.sh"
           - get
-          - "users/{{ item.id }}/sessions"
+          - "clients/{{ item.id }}/user-sessions"
           - -r
           - "{{ keycloak_realm }}"
-      loop: "{{ offboarding_keycloak_users }}"
-      register: offboarding_keycloak_sessions
+      loop: "{{ offboarding_keycloak_session_stats.stdout | from_json }}"
+      register: offboarding_keycloak_client_sessions
       changed_when: false
+      when: item.active | int > 0
       no_log: true
 
-    - name: Log out the user when Keycloak sessions remain
+    - name: Combine active Keycloak client sessions
+      ansible.builtin.set_fact:
+        offboarding_keycloak_sessions: >-
+          {{
+            offboarding_keycloak_sessions
+            + (item.stdout | from_json)
+          }}
+      loop: "{{ offboarding_keycloak_client_sessions.results }}"
+      when: not (item.skipped | default(false))
+      no_log: true
+
+    - name: Select exact Keycloak user IDs from active sessions
+      ansible.builtin.set_fact:
+        offboarding_keycloak_user_ids: >-
+          {{
+            offboarding_keycloak_sessions
+            | selectattr('username', 'defined')
+            | selectattr('username', 'equalto', offboard_user_name)
+            | map(attribute='userId')
+            | unique
+            | list
+          }}
+      no_log: true
+
+    - name: Reject duplicate exact Keycloak user IDs
+      ansible.builtin.assert:
+        that:
+          - offboarding_keycloak_user_ids | length <= 1
+        fail_msg: >-
+          Multiple exact Keycloak user IDs matched {{ offboard_user_name }}.
+
+    - name: Log out the exact user from all Keycloak sessions
       ansible.builtin.command:
         argv:
           - "{{ keycloak_path }}/bin/kcadm.sh"
           - create
-          - "users/{{ item.item.id }}/logout"
+          - "users/{{ item }}/logout"
           - -r
           - "{{ keycloak_realm }}"
           - -s
           - "realm={{ keycloak_realm }}"
           - -s
-          - "user={{ item.item.id }}"
-      loop: "{{ offboarding_keycloak_sessions.results }}"
-      when: (item.stdout | from_json) | length > 0
+          - "user={{ item }}"
+      loop: "{{ offboarding_keycloak_user_ids }}"
       changed_when: true
       no_log: true
 
@@ -229,14 +227,14 @@
       when:
         - (offboarding_keycloak_session_stats.stdout | from_json) | length == 0
 
-    - name: Report an identity that was not cached in Keycloak
+    - name: Report no active session for the exact Keycloak username
       ansible.builtin.debug:
         msg: >-
-          No exact Keycloak user was cached for {{ offboard_user_name }};
-          AD remains the authentication source of truth.
+          No active Keycloak session matched {{ offboard_user_name }}; AD
+          remains the authentication source of truth.
       when:
         - (offboarding_keycloak_session_stats.stdout | from_json) | length > 0
-        - offboarding_keycloak_users | length == 0
+        - offboarding_keycloak_user_ids | length == 0
 
 - name: Disable the matching Nextcloud user when present
   hosts: nextcloud_server

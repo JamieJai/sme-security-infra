@@ -1,0 +1,149 @@
+---
+- name: Validate Keycloak user session pilot authorization
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    keycloak_session_pilot_allowed_client: grafana
+  tasks:
+    - name: Require an explicitly authorized test identity
+      ansible.builtin.assert:
+        that:
+          - keycloak_session_pilot_authorized | default(false) | bool
+          - keycloak_session_pilot_user is defined
+          - >-
+            keycloak_session_pilot_user
+            is match('^offboard[.][a-z0-9._-]+$')
+          - >-
+            keycloak_session_pilot_confirm_user | default('')
+            == keycloak_session_pilot_user
+          - keycloak_session_pilot_password is defined
+          - keycloak_session_pilot_password | length >= 12
+          - >-
+            keycloak_session_pilot_client
+            | default(keycloak_session_pilot_allowed_client)
+            == keycloak_session_pilot_allowed_client
+        fail_msg: >-
+          Session creation is restricted to an explicitly confirmed
+          offboard.* test identity and the allowed public pilot client.
+      no_log: true
+
+- name: Create and verify a controlled Keycloak user session
+  hosts: iam_server
+  become: true
+  gather_facts: false
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+    keycloak_session_pilot_client: grafana
+  tasks:
+    - name: Create a direct-grant session without retaining token content
+      ansible.builtin.uri:
+        url: >-
+          http://127.0.0.1:8080/realms/{{ keycloak_realm
+          }}/protocol/openid-connect/token
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: password
+          client_id: "{{ keycloak_session_pilot_client }}"
+          username: "{{ keycloak_session_pilot_user }}"
+          password: "{{ keycloak_session_pilot_password }}"
+        status_code: 200
+        return_content: false
+      no_log: true
+
+    - name: Read Keycloak admin password from systemd
+      ansible.builtin.shell: >-
+        systemctl show keycloak -p Environment --value
+        | xargs -n1
+        | grep ^KEYCLOAK_ADMIN_PASSWORD=
+        | cut -d= -f2-
+        | tail -1
+      register: keycloak_session_pilot_admin_password
+      changed_when: false
+      no_log: true
+
+    - name: Authenticate to Keycloak Admin CLI
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - config
+          - credentials
+          - --server
+          - http://localhost:8080
+          - --realm
+          - master
+          - --user
+          - "{{ keycloak_admin_user }}"
+          - --password
+          - "{{ keycloak_session_pilot_admin_password.stdout }}"
+      changed_when: false
+      no_log: true
+
+    - name: Read realm client session statistics
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - client-session-stats
+          - -r
+          - "{{ keycloak_realm }}"
+      register: keycloak_session_pilot_stats
+      changed_when: false
+      no_log: true
+
+    - name: Select the pilot client session statistic
+      ansible.builtin.set_fact:
+        keycloak_session_pilot_client_stats: >-
+          {{
+            (keycloak_session_pilot_stats.stdout | from_json)
+            | selectattr(
+                'clientId',
+                'equalto',
+                keycloak_session_pilot_client
+              )
+            | list
+          }}
+      no_log: true
+
+    - name: Verify the pilot client has an active session
+      ansible.builtin.assert:
+        that:
+          - keycloak_session_pilot_client_stats | length == 1
+          - keycloak_session_pilot_client_stats[0].active | int > 0
+        fail_msg: "The pilot client has no active Keycloak session."
+      no_log: true
+
+    - name: Read active user sessions for the pilot client
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - >-
+            clients/{{
+              keycloak_session_pilot_client_stats[0].id
+            }}/user-sessions
+          - -r
+          - "{{ keycloak_realm }}"
+      register: keycloak_session_pilot_user_sessions
+      changed_when: false
+      no_log: true
+
+    - name: Verify the exact test identity session exists
+      ansible.builtin.assert:
+        that:
+          - >-
+            (keycloak_session_pilot_user_sessions.stdout | from_json)
+            | selectattr('username', 'defined')
+            | selectattr(
+                'username',
+                'equalto',
+                keycloak_session_pilot_user
+              )
+            | list
+            | length > 0
+        fail_msg: "The exact test identity session was not found."
+      no_log: true

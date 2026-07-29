@@ -35,6 +35,7 @@ required_files=(
   ansible/playbooks/employee-offboarding-verify.yml
   ansible/playbooks/employee-offboarding-recovery.yml
   ansible/playbooks/employee-offboarding-recovery-verify.yml
+  ansible/playbooks/keycloak-user-session-pilot.yml
   ansible/playbooks/wazuh-custom-detections.yml
 )
 
@@ -121,6 +122,8 @@ vault_args=()
     playbooks/employee-offboarding-recovery.yml "${vault_args[@]}"
   ansible-playbook -i inventory/hosts --syntax-check \
     playbooks/employee-offboarding-recovery-verify.yml "${vault_args[@]}"
+  ansible-playbook -i inventory/hosts --syntax-check \
+    playbooks/keycloak-user-session-pilot.yml "${vault_args[@]}"
   ansible-playbook -i inventory/hosts --syntax-check \
     playbooks/wazuh-agent-windows.yml "${vault_args[@]}"
   ansible-playbook -i inventory/hosts --syntax-check \

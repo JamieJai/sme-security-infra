@@ -116,57 +116,46 @@
       changed_when: false
       no_log: true
 
-    - name: Find candidate Keycloak users when sessions exist
-      ansible.builtin.command:
-        argv:
-          - "{{ keycloak_path }}/bin/kcadm.sh"
-          - get
-          - users
-          - -r
-          - "{{ keycloak_realm }}"
-          - -q
-          - "username={{ offboard_user_name }}"
-          - --fields
-          - id,username
-      register: offboarding_verify_keycloak_users_raw
-      changed_when: false
-      when:
-        - >-
-          (offboarding_verify_keycloak_session_stats.stdout | from_json)
-          | length > 0
-
-    - name: Select the exact Keycloak username
+    - name: Initialize remaining Keycloak session inventory
       ansible.builtin.set_fact:
-        offboarding_verify_keycloak_users: >-
-          {{
-            (
-              offboarding_verify_keycloak_users_raw.stdout
-              | default('[]')
-              | from_json
-            )
-            | selectattr('username', 'equalto', offboard_user_name)
-            | list
-          }}
+        offboarding_verify_keycloak_sessions: []
 
-    - name: Read remaining Keycloak sessions
+    - name: Read remaining user sessions from each client
       ansible.builtin.command:
         argv:
           - "{{ keycloak_path }}/bin/kcadm.sh"
           - get
-          - "users/{{ item.id }}/sessions"
+          - "clients/{{ item.id }}/user-sessions"
           - -r
           - "{{ keycloak_realm }}"
-      loop: "{{ offboarding_verify_keycloak_users }}"
-      register: offboarding_verify_keycloak_sessions
+      loop: >-
+        {{ offboarding_verify_keycloak_session_stats.stdout | from_json }}
+      register: offboarding_verify_keycloak_client_sessions
       changed_when: false
+      when: item.active | int > 0
       no_log: true
 
-    - name: Verify no Keycloak sessions remain
+    - name: Combine remaining Keycloak client sessions
+      ansible.builtin.set_fact:
+        offboarding_verify_keycloak_sessions: >-
+          {{
+            offboarding_verify_keycloak_sessions
+            + (item.stdout | from_json)
+          }}
+      loop: "{{ offboarding_verify_keycloak_client_sessions.results }}"
+      when: not (item.skipped | default(false))
+      no_log: true
+
+    - name: Verify no exact Keycloak user session remains
       ansible.builtin.assert:
         that:
-          - (item.stdout | from_json) | length == 0
+          - >-
+            offboarding_verify_keycloak_sessions
+            | selectattr('username', 'defined')
+            | selectattr('username', 'equalto', offboard_user_name)
+            | list
+            | length == 0
         fail_msg: "Keycloak sessions remain for {{ offboard_user_name }}."
-      loop: "{{ offboarding_verify_keycloak_sessions.results }}"
       no_log: true
 
 - name: Verify the matching Nextcloud user is disabled when present

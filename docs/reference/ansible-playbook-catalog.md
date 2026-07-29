@@ -55,6 +55,7 @@
 | `playbooks/ad-onboard-user.yml` | AD 사용자 온보딩 |
 | `playbooks/employee-offboarding-verify.yml` | AD disable, group 회수, Keycloak session, Nextcloud 상태 검증 |
 | `playbooks/employee-offboarding-recovery-verify.yml` | 승인된 identity, group, Nextcloud 복구 상태 검증 |
+| `playbooks/keycloak-user-session-pilot.yml` | `offboard.*` test identity의 direct-grant session 생성과 client session inventory 검증 |
 | `playbooks/ad-join-all.yml` | Linux member server AD join |
 | `playbooks/ad-postconfig.yml` | AD 후속 구성 |
 | `playbooks/endpoint-app-deployment-scope.yml` | Endpoint 표준 앱 배포 pilot 보안 그룹과 computer membership 준비 |
