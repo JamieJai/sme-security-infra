@@ -142,7 +142,19 @@
       changed_when: false
       no_log: true
 
-    - name: Find candidate Keycloak users
+    - name: Read realm client session statistics
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - client-session-stats
+          - -r
+          - "{{ keycloak_realm }}"
+      register: offboarding_keycloak_session_stats
+      changed_when: false
+      no_log: true
+
+    - name: Find candidate Keycloak users when sessions exist
       ansible.builtin.command:
         argv:
           - "{{ keycloak_path }}/bin/kcadm.sh"
@@ -156,12 +168,18 @@
           - id,username
       register: offboarding_keycloak_users_raw
       changed_when: false
+      when:
+        - (offboarding_keycloak_session_stats.stdout | from_json) | length > 0
 
     - name: Select the exact Keycloak username
       ansible.builtin.set_fact:
         offboarding_keycloak_users: >-
           {{
-            (offboarding_keycloak_users_raw.stdout | from_json)
+            (
+              offboarding_keycloak_users_raw.stdout
+              | default('[]')
+              | from_json
+            )
             | selectattr('username', 'equalto', offboard_user_name)
             | list
           }}
@@ -203,12 +221,22 @@
       changed_when: true
       no_log: true
 
+    - name: Report a realm with no active Keycloak sessions
+      ansible.builtin.debug:
+        msg: >-
+          No active Keycloak client sessions exist in {{ keycloak_realm }};
+          user lookup and logout were not required.
+      when:
+        - (offboarding_keycloak_session_stats.stdout | from_json) | length == 0
+
     - name: Report an identity that was not cached in Keycloak
       ansible.builtin.debug:
         msg: >-
           No exact Keycloak user was cached for {{ offboard_user_name }};
           AD remains the authentication source of truth.
-      when: offboarding_keycloak_users | length == 0
+      when:
+        - (offboarding_keycloak_session_stats.stdout | from_json) | length > 0
+        - offboarding_keycloak_users | length == 0
 
 - name: Disable the matching Nextcloud user when present
   hosts: nextcloud_server

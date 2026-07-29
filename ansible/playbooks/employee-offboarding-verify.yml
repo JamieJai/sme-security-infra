@@ -104,7 +104,19 @@
       changed_when: false
       no_log: true
 
-    - name: Find candidate Keycloak users
+    - name: Read realm client session statistics
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - get
+          - client-session-stats
+          - -r
+          - "{{ keycloak_realm }}"
+      register: offboarding_verify_keycloak_session_stats
+      changed_when: false
+      no_log: true
+
+    - name: Find candidate Keycloak users when sessions exist
       ansible.builtin.command:
         argv:
           - "{{ keycloak_path }}/bin/kcadm.sh"
@@ -118,12 +130,20 @@
           - id,username
       register: offboarding_verify_keycloak_users_raw
       changed_when: false
+      when:
+        - >-
+          (offboarding_verify_keycloak_session_stats.stdout | from_json)
+          | length > 0
 
     - name: Select the exact Keycloak username
       ansible.builtin.set_fact:
         offboarding_verify_keycloak_users: >-
           {{
-            (offboarding_verify_keycloak_users_raw.stdout | from_json)
+            (
+              offboarding_verify_keycloak_users_raw.stdout
+              | default('[]')
+              | from_json
+            )
             | selectattr('username', 'equalto', offboard_user_name)
             | list
           }}
