@@ -17,7 +17,7 @@
       ansible.builtin.assert:
         that:
           - ad_user_name is defined
-          - ad_user_name | length > 0
+          - ad_user_name is match('^[a-z0-9][a-z0-9._-]{0,63}$')
           - ad_user_password is defined
           - ad_user_password | length > 0
           - ad_user_email is defined
@@ -44,52 +44,144 @@
 
     - name: Check whether AD user already exists
       ansible.builtin.command:
-        cmd: samba-tool user show {{ ad_user_name }}
+        argv:
+          - samba-tool
+          - user
+          - show
+          - "{{ ad_user_name }}"
       register: ad_user_lookup
-      failed_when: false
+      failed_when:
+        - ad_user_lookup.rc != 0
+        - >-
+          'unable to find user' not in (
+            ad_user_lookup.stdout
+            ~ ad_user_lookup.stderr
+          ) | lower
       changed_when: false
       no_log: true
 
+    - name: Validate the existing user password-change request
+      ansible.builtin.assert:
+        that:
+          - >-
+            not (
+              ad_user_lookup.rc == 0
+              and ad_user_must_change_password | bool
+              and not (ad_onboard_reset_password | bool)
+            )
+        fail_msg: >-
+          Existing users require ad_onboard_reset_password=true when
+          ad_user_must_change_password=true.
+
     - name: Create AD user
-      ansible.builtin.command:
+      ansible.builtin.script:
         cmd: >-
-          samba-tool user create {{ ad_user_name }} {{ ad_user_password }}
-          --given-name={{ ad_user_given_name | default(ad_user_name) }}
-          --surname={{ ad_user_surname | default('User') }}
-          --mail-address={{ ad_user_email }}
+          {{ playbook_dir }}/../files/samba_user_password.py
+          create
+          --username {{ ad_user_name | quote }}
+          --given-name {{
+            ad_user_given_name | default(ad_user_name) | quote
+          }}
+          --surname {{ ad_user_surname | default('User') | quote }}
+          --email {{ ad_user_email | quote }}
+          {{
+            '--must-change'
+            if ad_user_must_change_password | bool
+            else ''
+          }}
+        executable: /usr/bin/python3
+      environment:
+        AD_USER_PASSWORD: "{{ ad_user_password }}"
       when: ad_user_lookup.rc != 0
       no_log: true
 
     - name: Reset existing AD user password when requested
-      ansible.builtin.command:
-        cmd: samba-tool user setpassword {{ ad_user_name }} --newpassword={{ ad_user_password }}
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../files/samba_user_password.py
+          reset
+          --username {{ ad_user_name | quote }}
+          {{
+            '--must-change'
+            if ad_user_must_change_password | bool
+            else ''
+          }}
+        executable: /usr/bin/python3
+      environment:
+        AD_USER_PASSWORD: "{{ ad_user_password }}"
       when:
         - ad_user_lookup.rc == 0
         - ad_onboard_reset_password | bool
       no_log: true
 
+    - name: Read the resulting AD user account control value
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - user
+          - show
+          - "{{ ad_user_name }}"
+          - --attributes=userAccountControl
+          - --color=never
+      register: ad_user_account_control
+      changed_when: false
+
+    - name: Parse the resulting AD user account control value
+      ansible.builtin.set_fact:
+        ad_user_uac: >-
+          {{
+            (
+              ad_user_account_control.stdout
+              | regex_findall(
+                '(?m)^userAccountControl:[ ]*([0-9]+)[ ]*$'
+              )
+              | first
+            )
+            | int
+          }}
+
     - name: Enable AD user
       ansible.builtin.command:
-        cmd: samba-tool user enable {{ ad_user_name }}
-      when: ad_user_enabled | bool
-      register: ad_user_enable
-      changed_when: "'Enabled user' in ad_user_enable.stdout"
-      failed_when: false
+        argv:
+          - samba-tool
+          - user
+          - enable
+          - "{{ ad_user_name }}"
+      when:
+        - ad_user_enabled | bool
+        - ((ad_user_uac | int) // 2) % 2 == 1
+      changed_when: true
 
-    - name: Force password change on next login when requested
+    - name: Disable AD user when requested
       ansible.builtin.command:
-        cmd: samba-tool user setexpiry {{ ad_user_name }} --days=0
-      when: ad_user_must_change_password | bool
+        argv:
+          - samba-tool
+          - user
+          - disable
+          - "{{ ad_user_name }}"
+      when:
+        - not (ad_user_enabled | bool)
+        - ((ad_user_uac | int) // 2) % 2 == 0
+      changed_when: true
 
     - name: Ensure requested AD groups exist
       ansible.builtin.command:
-        cmd: samba-tool group show {{ item }}
+        argv:
+          - samba-tool
+          - group
+          - show
+          - "{{ item }}"
       loop: "{{ ad_user_groups }}"
       changed_when: false
 
     - name: Add AD user to requested groups
       ansible.builtin.command:
-        cmd: samba-tool group addmembers {{ item }} {{ ad_user_name }}
+        argv:
+          - samba-tool
+          - group
+          - addmembers
+          - "{{ item }}"
+          - "{{ ad_user_name }}"
       loop: "{{ ad_user_groups }}"
       register: ad_group_add
       changed_when: "'Added members' in ad_group_add.stdout"
@@ -100,7 +192,11 @@
 
     - name: Show onboarded AD user summary
       ansible.builtin.command:
-        cmd: samba-tool user show {{ ad_user_name }}
+        argv:
+          - samba-tool
+          - user
+          - show
+          - "{{ ad_user_name }}"
       register: ad_user_summary
       changed_when: false
 

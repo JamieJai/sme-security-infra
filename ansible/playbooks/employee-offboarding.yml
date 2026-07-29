@@ -267,8 +267,15 @@
           - "{{ nextcloud_occ }}"
           - user:info
           - "{{ offboard_user_name }}"
+          - --output=json
       register: offboarding_nextcloud_user
-      failed_when: false
+      failed_when:
+        - offboarding_nextcloud_user.rc != 0
+        - >-
+          'user not found' not in (
+            offboarding_nextcloud_user.stdout
+            ~ offboarding_nextcloud_user.stderr
+          ) | lower
       changed_when: false
 
     - name: Disable the matching Nextcloud user
@@ -283,7 +290,9 @@
           - "{{ offboard_user_name }}"
       when:
         - offboarding_nextcloud_user.rc == 0
-        - "'enabled: true' in offboarding_nextcloud_user.stdout"
+        - >-
+          (offboarding_nextcloud_user.stdout | from_json).enabled
+          | bool
       changed_when: true
 
     - name: Report a Nextcloud user that was not provisioned

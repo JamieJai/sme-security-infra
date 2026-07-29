@@ -158,8 +158,15 @@
           - "{{ nextcloud_occ }}"
           - user:info
           - "{{ offboard_user_name }}"
+          - --output=json
       register: offboarding_recovery_nextcloud_user
-      failed_when: false
+      failed_when:
+        - offboarding_recovery_nextcloud_user.rc != 0
+        - >-
+          'user not found' not in (
+            offboarding_recovery_nextcloud_user.stdout
+            ~ offboarding_recovery_nextcloud_user.stderr
+          ) | lower
       changed_when: false
 
     - name: Enable the matching Nextcloud user
@@ -174,7 +181,11 @@
           - "{{ offboard_user_name }}"
       when:
         - offboarding_recovery_nextcloud_user.rc == 0
-        - "'enabled: false' in offboarding_recovery_nextcloud_user.stdout"
+        - >-
+          not (
+            (offboarding_recovery_nextcloud_user.stdout | from_json).enabled
+            | bool
+          )
       changed_when: true
 
     - name: Report a Nextcloud user that was not provisioned

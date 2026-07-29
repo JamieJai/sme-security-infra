@@ -130,6 +130,11 @@ Keycloak에 exact user session이 없거나 Nextcloud local user가 생성되지
 경우는 실패가 아니다. 인증 원본인 AD disable과 관리 그룹 회수가 완료됐는지를
 기준으로 판단하고 report에 해당 상태를 남긴다.
 
+Nextcloud 조회에서 `user not found`는 정상적인 미프로비저닝 상태로 처리한다.
+그 외 `occ user:info` 오류는 PHP, DB 또는 application 장애일 수 있으므로
+offboarding/recovery를 성공으로 기록하지 않고 중단한다. user enabled 상태는
+사람이 읽는 문자열이 아니라 `--output=json` 결과로 판정한다.
+
 ## 상태 분류
 
 | 상태 | 의미 |

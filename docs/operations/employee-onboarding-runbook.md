@@ -65,7 +65,15 @@ v1에서 제외:
   --password-file /secure/path/temporary-password
 ```
 
-`--password-file`을 생략하면 non-TTY stdin의 첫 줄 또는 대화형 `read -s`로 비밀번호를 받는다. 비밀번호 자체는 옵션 인자로 받지 않으며 로그와 리포트에 절대 쓰지 않는다.
+`--password-file`을 생략하면 non-TTY stdin의 첫 줄 또는 대화형 `read -s`로
+비밀번호를 받는다. 비밀번호 자체는 옵션 인자로 받지 않으며 로그와 리포트에
+절대 쓰지 않는다. wrapper가 만든 mode `0600` extra-vars 파일에서 Ansible이
+비밀번호를 읽고, 원격 Samba Python helper에는 process argument가 아닌 task
+environment로 전달한다. helper는 `SamDB.newuser/setpassword`를 사용하며
+environment에서 읽은 값을 즉시 제거한다. `must_change_password=true`는 account
+expiry가 아니라 Samba의 password-change flag로 적용된다. password reset이
+disabled bit를 바꾸더라도 후속 UAC 확인이 요청한 `ad_user_enabled` 상태로 다시
+수렴시킨다.
 
 ## Verification Checklist
 
@@ -77,6 +85,8 @@ v1에서 제외:
 | AD | `mail:` attribute가 요청 email과 일치 |
 | AD | 요청 부서 group에 user가 포함 |
 | Password policy | AD minimum password length를 만족 |
+| Password handling | CLI/process argument와 report에 비밀번호가 없음 |
+| Password change | 요청 시 `--must-change-at-next-login` 적용 |
 | Keycloak | homelab realm discovery endpoint HTTP 200 |
 | Keycloak | LDAP federation baseline 검증 통과 |
 | Nextcloud | OIDC provider, expected groups, external storage restriction 검증 통과 |

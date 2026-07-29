@@ -36,7 +36,9 @@ required_files=(
   ansible/playbooks/employee-offboarding-recovery.yml
   ansible/playbooks/employee-offboarding-recovery-verify.yml
   ansible/playbooks/keycloak-user-session-pilot.yml
+  ansible/files/samba_user_password.py
   ansible/playbooks/wazuh-custom-detections.yml
+  tests/test_identity_playbook_safety.py
 )
 
 for command_name in git bash python3 ansible-playbook; do
@@ -91,6 +93,9 @@ pass "offboarding plan and safety gates"
 
 python3 -m unittest -q "$ROOT_DIR/tests/test_recover_offboarded_employee.py"
 pass "offboarding recovery plan and safety gates"
+
+python3 -m unittest -q "$ROOT_DIR/tests/test_identity_playbook_safety.py"
+pass "identity playbook safety invariants"
 
 python3 -m unittest -q "$ROOT_DIR/tests/test_kali_egress_guard.py"
 pass "Kali egress guard unit tests"

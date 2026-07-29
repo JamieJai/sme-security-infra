@@ -324,7 +324,7 @@ write_report() {
 |---|---|
 | AD identity | Disable; never delete |
 | Managed groups | Remove HR, Finance, IT, and Security access groups |
-| Keycloak | Revoke all sessions for the exact cached username |
+| Keycloak | Revoke all active client sessions for the exact username |
 | Nextcloud | Disable the exact local user when present |
 | Mail | Block new authentication through the disabled AD source account |
 | Data | Preserve mailbox, files, identity, and audit records |

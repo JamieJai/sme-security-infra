@@ -83,15 +83,22 @@
           - "{{ nextcloud_occ }}"
           - user:info
           - "{{ offboard_user_name }}"
+          - --output=json
       register: offboarding_recovery_verify_nextcloud_user
-      failed_when: false
+      failed_when:
+        - offboarding_recovery_verify_nextcloud_user.rc != 0
+        - >-
+          'user not found' not in (
+            offboarding_recovery_verify_nextcloud_user.stdout
+            ~ offboarding_recovery_verify_nextcloud_user.stderr
+          ) | lower
       changed_when: false
 
     - name: Verify the matching Nextcloud user is enabled
       ansible.builtin.assert:
         that:
           - >-
-            'enabled: true'
-            in offboarding_recovery_verify_nextcloud_user.stdout
+            (offboarding_recovery_verify_nextcloud_user.stdout | from_json)
+            .enabled | bool
         fail_msg: "Nextcloud user {{ offboard_user_name }} remains disabled."
       when: offboarding_recovery_verify_nextcloud_user.rc == 0
