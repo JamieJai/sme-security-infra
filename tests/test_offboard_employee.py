@@ -230,6 +230,50 @@ class OffboardEmployeePlanTests(unittest.TestCase):
         self.assertEqual(details["apply_return_code"], 1)
         self.assertEqual(details["verify_return_code"], 125)
 
+    def test_execute_retry_preserves_original_asset_status(self):
+        first = self.run_script(
+            "--username",
+            "demo.user",
+            "--ticket-ref",
+            "OFF-2026-006",
+            "--reason",
+            "Fixture first attempt",
+            "--approved-by",
+            "it.manager",
+            "--execute",
+            "--confirm-username",
+            "demo.user",
+            extra_env={"PATH": self.fake_ansible_path(1)},
+        )
+        self.assertEqual(first.returncode, 1)
+
+        second = self.run_script(
+            "--username",
+            "demo.user",
+            "--ticket-ref",
+            "OFF-2026-006",
+            "--reason",
+            "Fixture retry",
+            "--approved-by",
+            "it.manager",
+            "--execute",
+            "--confirm-username",
+            "demo.user",
+            extra_env={"PATH": self.fake_ansible_path(0)},
+        )
+        self.assertEqual(second.returncode, 0, second.stderr)
+
+        with sqlite3.connect(self.db_path) as conn:
+            metadata_raw = conn.execute(
+                "select metadata_json from assets where name = ?",
+                ("PC-DEMO01",),
+            ).fetchone()[0]
+        metadata = json.loads(metadata_raw)
+        self.assertEqual(
+            metadata["offboarding"]["previous_status"],
+            "assigned",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

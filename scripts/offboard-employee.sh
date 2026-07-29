@@ -158,10 +158,14 @@ if db_path.exists():
             ).fetchall()
             for name, status, owner, metadata_raw in rows:
                 metadata = json.loads(metadata_raw or "{}")
+                offboarding = metadata.get("offboarding") or {}
                 assets.append(
                     {
                         "name": name,
                         "status": status,
+                        "previous_status": (
+                            offboarding.get("previous_status") or status
+                        ),
                         "owner": owner,
                         "asset_tag": metadata.get("asset_tag"),
                     }
@@ -205,7 +209,7 @@ mode = os.environ["OFFBOARD_MODE"]
 asset_file = pathlib.Path(os.environ["OFFBOARD_ASSET_FILE"])
 assets = json.loads(asset_file.read_text())
 for asset in assets:
-    asset["previous_status"] = asset.pop("status")
+    asset["current_status"] = asset.pop("status")
 
 details = {
     "mode": mode,

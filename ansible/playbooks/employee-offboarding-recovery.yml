@@ -40,7 +40,13 @@
   tasks:
     - name: Read the requested AD user
       ansible.builtin.command:
-        argv: [samba-tool, user, show, "{{ offboard_user_name }}"]
+        argv:
+          - samba-tool
+          - user
+          - show
+          - "{{ offboard_user_name }}"
+          - --attributes=userAccountControl
+          - --color=never
       register: offboarding_recovery_ad_user
       changed_when: false
 
@@ -50,7 +56,9 @@
           {{
             (
               offboarding_recovery_ad_user.stdout
-              | regex_findall('(?m)^userAccountControl:\\s*(\\d+)\\s*$')
+              | regex_findall(
+                '(?m)^userAccountControl:[ ]*([0-9]+)[ ]*$'
+              )
               | first
             )
             | int
