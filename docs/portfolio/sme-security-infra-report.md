@@ -2,6 +2,9 @@
 
 *"AD, SSO, 협업 서비스, 메일, SIEM을 하나의 운영 흐름으로 묶어 실제 기업 IT 환경에 가까운 보안 인프라를 구현한 프로젝트"*
 
+지원용 요약과 공고 요구사항별 증거는
+[Toss IT Manager Application Evidence](toss-it-manager-application.md)를 먼저 본다.
+
 ## 1. 개요 (Overview)
 
 - **목표:** 중소기업에서 현실적으로 필요한 계정 관리, 권한 제어, 협업 서비스, 메일, 보안 관제, 운영 자동화를 하나의 내부 인프라로 구성한다.

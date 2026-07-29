@@ -8,7 +8,7 @@
 |---|---|---|
 | Identity | AD, Keycloak, LDAP/OIDC | 계정, 그룹, SSO, 접근 제어의 기준 |
 | Collaboration | Nextcloud, Nextcloud Talk, Mail | 파일 공유, 웹 메신저, 메일 업무 환경 |
-| Endpoint | Windows AD Join package, future macOS checks | 신규 PC 도메인 가입, 기본 보안 설정, 사용자 셀프서비스 |
+| Endpoint | Windows ODJ, 자산 등록, pilot 앱 배포 | 신규 PC 도메인 가입, 표준 앱, 보안 가시성 |
 | Operations alerts | Slack | 온보딩 완료, 검증 실패, 인증서/백업/Wazuh 경보 같은 공통 운영 알림 |
 | Knowledge base | Notion | 승인된 runbook, 온보딩 리포트, 장애 회고, 주간 IT health report 보관 |
 | Helpdesk | Jira/GitHub Issues | 사용자 요청, 장애 티켓, 재발 방지 task 추적 |
@@ -22,6 +22,9 @@
 - Slack은 `SLACK_WEBHOOK_URL` 기반으로 온보딩 결과 알림을 보낼 수 있다. 다음 단계는 온보딩 외 verify, backup, certificate, Wazuh 이벤트까지 공통 알림으로 확장하는 것이다.
 - Notion은 `homelab` MCP의 `notion_create_page`, `notion_publish_project_file` helper를 통해 운영 문서를 publish할 수 있게 한다. 토큰과 부모 페이지 ID는 env var로만 주입한다.
 - Helpdesk scenario는 `docs/operations/helpdesk-scenarios.md`에 PC 도메인 가입 실패, AD 로그인 실패, SSO 실패, 부서 폴더 미노출, Mail 로그인 실패, IT health 실패 기준으로 정리됐다.
+- Windows ODJ package 발급과 적용, endpoint 자산 등록, Wazuh agent, pilot 표준 앱 SYSTEM 배포와 reboot 검증이 완료됐다.
+- Wazuh Windows EventChannel과 Telegram 알림이 적용됐고, manager 재시작 후 TCP 1514와 전체 agent Active를 확인하는 배포 gate가 추가됐다.
+- macOS/MDM, Google Workspace production tenant, 물리 복합기/NAC/DLP 운영은 구현 완료 범위가 아니며 지원서에서도 실제 운영 경험으로 주장하지 않는다.
 
 ## 운영 workflow 목표
 
@@ -62,15 +65,22 @@
 4. v2에서는 Offline Domain Join blob으로 credential 입력 부담을 줄임
 5. 실행 결과를 IT health/reporting workflow와 연결
 
-## 우선순위
+## 완료된 우선순위
 
-1. `verify-and-report.sh` 추가: 전체 검증, Markdown summary, SQLite 기록, Slack 알림, 선택적 Notion publish.
-2. Windows AD Join 셀프서비스 v1: 사번 기반 no-secret package 생성, 사용자 가이드, 향후 Offline Domain Join 설계.
-3. `docs/operations/helpdesk-scenarios.md` 유지/확장: IT Manager 면접용 문제 해결 사례와 read-only 진단 절차 구조화.
-4. `docs/getting-started/employee-it-onboarding.md` 추가: 비전문가용 SSO, Mail, Nextcloud, Talk 사용 가이드.
-5. Nextcloud Talk 운영 보강: 사용자 가이드, 알림 정책, TURN 서버 필요성 판단, 모바일 사용 범위 정리.
-6. Notion 운영 페이지 템플릿 정의: Runbook, Incident Review, Weekly IT Health, Employee Onboarding Report.
-7. Slack 알림 taxonomy 정의: `success`, `partial`, `failed`, `attention_required` 같은 상태와 메시지 포맷 통일.
+1. `verify-and-report.sh`: 전체 검증, Markdown, SQLite, 선택적 Slack/Notion 경로 구현.
+2. Windows onboarding: no-secret package, ODJ, 사용자 가이드, 자산 등록 구현.
+3. Helpdesk: 6개 scenario와 read-only 진단 리포트 구현.
+4. 비전문가용 SSO, Mail, Nextcloud, Talk 가이드 작성.
+5. Wazuh/Telegram: Windows 수집, 탐지 fixture, 알림 및 배포 후 receiver gate 구현.
+6. 지원 자료: 루트 README, JD-증거 매트릭스, 10분 demo runbook 추가.
+
+## 다음 우선순위
+
+1. 퇴사자 offboarding: disable-first, group 회수, session revoke, 자산 회수 증적 workflow.
+2. macOS 실제 장비: FileVault, 표준/관리자 계정 분리, inventory, 복구 절차.
+3. SaaS test tenant: 사용자·그룹·MFA·session revoke·audit log lifecycle.
+4. Helpdesk 지표: priority, first response, resolution time, recurrence를 집계하는 report.
+5. 자산 lifecycle: 지급, 사용자 변경, 수리, 회수, wipe, 폐기 상태 전이.
 
 ## Notion MCP 운영 기준
 

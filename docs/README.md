@@ -21,6 +21,9 @@
 | Ansible playbook 목록과 위험도를 확인한다 | [reference/ansible-playbook-catalog.md](reference/ansible-playbook-catalog.md) |
 | Terraform 기준을 확인한다 | [reference/terraform-runbook.md](reference/terraform-runbook.md) |
 | Windows/macOS 단말 관리 방향을 본다 | [services/endpoint-management.md](services/endpoint-management.md) |
+| 지원용 핵심 증거를 빠르게 본다 | [portfolio/toss-it-manager-application.md](portfolio/toss-it-manager-application.md) |
+| 이력서 프로젝트 문안을 본다 | [portfolio/resume-project-draft.md](portfolio/resume-project-draft.md) |
+| 10분 포트폴리오 데모를 진행한다 | [portfolio/it-manager-demo-runbook.md](portfolio/it-manager-demo-runbook.md) |
 
 ## 디렉터리 구조
 
@@ -30,6 +33,7 @@ docs/
   architecture.md
   getting-started/   # 신규 구축, secret, 전체 재현 로드맵
   operations/        # 운영 모드, IaC 실행 순서, 검증
+  portfolio/         # 지원용 요약, 문제 해결 사례, 데모 runbook
   reference/         # Terraform/Ansible 참조
   services/          # AD/Keycloak/Nextcloud/Mail/Wazuh 등 서비스별 문서
   recovery/          # 장애 시험과 복구 절차

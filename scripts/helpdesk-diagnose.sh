@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANSIBLE_DIR="$ROOT_DIR/ansible"
 REPORT_DIR="$ROOT_DIR/artifacts/helpdesk"
-OPS_DB="$ROOT_DIR/.codex/mcp/homelab_ops.sqlite"
+OPS_DB="${OPS_DB:-$ROOT_DIR/.codex/mcp/homelab_ops.sqlite}"
 INVENTORY="${INVENTORY:-inventory/hosts}"
 
 scenario=""
