@@ -105,13 +105,14 @@ wrapper와 playbook은 다음 gate를 중복 적용한다.
 2. 관리 대상 부서 그룹 membership을 조회한다.
 3. 실제 포함된 관리 대상 그룹에서만 사용자를 제거한다.
 4. AD userAccountControl을 확인하고 enabled 상태일 때만 disable한다.
-5. Keycloak에서 exact username을 선택하고 모든 session을 revoke한다.
-6. 동일한 Nextcloud local user가 존재하고 enabled이면 disable한다.
-7. 별도 verification playbook으로 AD disable, group removal, Keycloak session 0,
+5. Keycloak user cache를 비워 AD의 최신 disable 상태를 다시 읽게 한다.
+6. active client session에서 exact username을 선택하고 모든 session을 revoke한다.
+7. 동일한 Nextcloud local user가 존재하고 enabled이면 disable한다.
+8. 별도 verification playbook으로 AD disable, group removal, Keycloak session 0,
    Nextcloud disable을 확인한다.
-8. 승인된 execute 요청이면 identity 적용 결과와 별개로 할당 asset을
+9. 승인된 execute 요청이면 identity 적용 결과와 별개로 할당 asset을
    `recovery_pending`으로 전환한다.
-9. Markdown report와 `employee_offboarding` SQLite record를 작성한다.
+10. Markdown report와 `employee_offboarding` SQLite record를 작성한다.
 
 ## 완료 기준
 
@@ -119,13 +120,13 @@ wrapper와 playbook은 다음 gate를 중복 적용한다.
 |---|---|
 | AD | disabled bit가 설정됨 |
 | 부서 권한 | 네 개 managed group에 username이 없음 |
-| Keycloak | exact cached user의 session이 0개 |
+| Keycloak | exact username의 active session이 0개 |
 | Nextcloud | local user가 있으면 `enabled: false` |
 | 자산 | 할당 asset이 `recovery_pending`, 이전 status가 metadata에 보존됨 |
 | 증적 | report와 SQLite operation record가 존재 |
 | 데이터 | 삭제 작업이 수행되지 않음 |
 
-Keycloak에 사용자가 cache되지 않았거나 Nextcloud local user가 생성되지 않은
+Keycloak에 exact user session이 없거나 Nextcloud local user가 생성되지 않은
 경우는 실패가 아니다. 인증 원본인 AD disable과 관리 그룹 회수가 완료됐는지를
 기준으로 판단하고 report에 해당 상태를 남긴다.
 
@@ -168,9 +169,11 @@ Keycloak에 사용자가 cache되지 않았거나 Nextcloud local user가 생성
   --confirm-username kim.chulsoo
 ```
 
-그룹은 기존 티켓과 offboarding report에 있던 항목만 복구한다. Keycloak session은
-복구하지 않으며 사용자가 새로 로그인하게 한다. identity와 group verification이
-통과한 경우에만 asset status를 `offboarding.previous_status`로 되돌린다.
+그룹은 기존 티켓과 offboarding report에 있던 항목만 복구한다. AD enable 뒤
+Keycloak realm user cache를 비워 federation의 이전 disabled 상태가 남지 않게
+한다. 이 작업은 기존 session을 복구하지 않으며 사용자가 새로 로그인하게 한다.
+identity와 group verification이 통과한 경우에만 asset status를
+`offboarding.previous_status`로 되돌린다.
 
 ## 검증 및 테스트
 
@@ -203,9 +206,11 @@ execute gate와 보호 계정 차단, 성공 검증 전 asset recovery 차단이
 - offboarding 후 AD `514`, managed group 없음, 자산 `recovery_pending`
 - 별도 recovery 후 AD enable, 승인 group 복구, 자산 `assigned`
 - recovery 재실행 apply/verify `changed=0`
-- final containment 후 AD `514`, group 없음, 자산 `recovery_pending`
+- `grafana`와 `nextcloud-oidc` active session의 exact-user logout
+- Nextcloud `user_oidc` local user의 disable, recovery enable, 재실행 `changed=0`
+- final containment 후 AD `514`, group 없음, Nextcloud disabled, session 0,
+  자산 `recovery_pending`
 
-Keycloak realm에는 active session이 없었고 Nextcloud local user도 생성되지 않아
-해당 두 live branch는 완료로 주장하지 않는다. 중간 실패와 수정 내역은
+실제 임직원이 아닌 전용 test identity로만 수행했다. 중간 실패와 수정 내역은
 [Employee Offboarding Lifecycle Pilot](../portfolio/employee-offboarding-lifecycle-pilot.md)에
 정리했다.

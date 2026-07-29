@@ -91,11 +91,23 @@
       no_log: true
       notify: Restart HAProxy
 
+    - name: Check for the cloud-init hosts template
+      ansible.builtin.stat:
+        path: /etc/cloud/templates/hosts.debian.tmpl
+      register: keycloak_cloud_init_hosts_template
+
     - name: Resolve local LDAP HA endpoint name
       ansible.builtin.lineinfile:
         path: /etc/hosts
         regexp: "^127\\.0\\.0\\.1\\s+{{ keycloak_ldap_ha_name | regex_escape }}(?:\\s|$)"
         line: "127.0.0.1 {{ keycloak_ldap_ha_name }}"
+
+    - name: Persist local LDAP HA endpoint name across cloud-init
+      ansible.builtin.lineinfile:
+        path: /etc/cloud/templates/hosts.debian.tmpl
+        regexp: "^127\\.0\\.0\\.1\\s+{{ keycloak_ldap_ha_name | regex_escape }}(?:\\s|$)"
+        line: "127.0.0.1 {{ keycloak_ldap_ha_name }}"
+      when: keycloak_cloud_init_hosts_template.stat.exists
 
     - name: Trust local LDAP HA endpoint in OS trust store
       ansible.builtin.copy:

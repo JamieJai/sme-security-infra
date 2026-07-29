@@ -89,6 +89,57 @@
       when: offboard_user_name not in item.stdout_lines
       changed_when: true
 
+- name: Refresh Keycloak federated user state after AD recovery
+  hosts: iam_server
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    keycloak_path: /opt/keycloak
+    keycloak_realm: homelab
+    keycloak_admin_user: admin
+  tasks:
+    - name: Read Keycloak admin password from systemd
+      ansible.builtin.shell: >-
+        systemctl show keycloak -p Environment --value
+        | xargs -n1
+        | grep ^KEYCLOAK_ADMIN_PASSWORD=
+        | cut -d= -f2-
+        | tail -1
+      register: offboarding_recovery_keycloak_admin_password
+      changed_when: false
+      no_log: true
+
+    - name: Authenticate to Keycloak Admin CLI
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - config
+          - credentials
+          - --server
+          - http://localhost:8080
+          - --realm
+          - master
+          - --user
+          - "{{ keycloak_admin_user }}"
+          - --password
+          - "{{ offboarding_recovery_keycloak_admin_password.stdout }}"
+      changed_when: false
+      no_log: true
+
+    - name: Refresh Keycloak federated user state from AD
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - create
+          - clear-user-cache
+          - -r
+          - "{{ keycloak_realm }}"
+          - -s
+          - "realm={{ keycloak_realm }}"
+      changed_when: false
+      no_log: true
+
 - name: Re-enable the matching Nextcloud user when present
   hosts: nextcloud_server
   become: true

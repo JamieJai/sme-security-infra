@@ -96,6 +96,7 @@
       failed_when:
         - ad_group_add.rc != 0
         - "'already a member' not in ad_group_add.stderr"
+        - "'Attribute member already exists' not in ad_group_add.stderr"
 
     - name: Show onboarded AD user summary
       ansible.builtin.command:

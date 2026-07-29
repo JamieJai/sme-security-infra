@@ -60,9 +60,11 @@ Ansible, Terraform, PowerShell, Bash, SQLite
   설계했습니다.
 - fixture에서 plan의 비변경성, 보호 계정 차단, 승인 gate를 검증하고 전용 test
   identity로 AD/group/asset lifecycle을 live 검증했습니다.
-- UAC parser와 Keycloak users API 오류를 `partial`로 기록한 뒤 parser, session
-  gate, retry asset 상태 보존을 개선했습니다.
-- 실제 임직원 처리 또는 active Keycloak session revoke 경험으로 표현하지 않습니다.
+- UAC parser, LDAP HA name-resolution drift, federated user cache 문제를
+  `partial`과 로그로 기록한 뒤 parser, cache refresh, retry 상태 보존을 개선했습니다.
+- Grafana와 Nextcloud OIDC active session의 exact-user revoke, Nextcloud
+  disable/enable, 재실행 `changed=0`을 전용 test identity로 live 검증했습니다.
+- 실제 임직원 또는 production tenant 처리 경험으로 표현하지 않습니다.
 
 ### Wazuh 장애 대응
 

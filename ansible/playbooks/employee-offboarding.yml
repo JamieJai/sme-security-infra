@@ -142,6 +142,19 @@
       changed_when: false
       no_log: true
 
+    - name: Refresh Keycloak federated user state from AD
+      ansible.builtin.command:
+        argv:
+          - "{{ keycloak_path }}/bin/kcadm.sh"
+          - create
+          - clear-user-cache
+          - -r
+          - "{{ keycloak_realm }}"
+          - -s
+          - "realm={{ keycloak_realm }}"
+      changed_when: false
+      no_log: true
+
     - name: Read realm client session statistics
       ansible.builtin.command:
         argv:

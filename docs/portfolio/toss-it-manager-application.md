@@ -161,8 +161,8 @@ rollback에서 제외했다.
 4. Google Workspace, 물리 복합기, NAC/DLP의 production 운영 경험은 주장하지 않는다.
 5. Kali는 Wazuh 탐지 품질 확인용으로 범위를 고정했으며 침투 경험을 IT Manager
    핵심 역량처럼 내세우지 않는다.
-6. 오프보딩 AD/group/asset lifecycle은 전용 test identity로 live 검증했지만
-   실제 active Keycloak session과 provision된 Nextcloud user branch는 검증하지 않았다.
+6. 오프보딩의 AD/group/asset, active Keycloak session, provision된 Nextcloud
+   user branch는 전용 test identity로만 검증했으며 실제 임직원 처리 경험이 아니다.
 
 ## 지원 전 남은 외부 실습
 
