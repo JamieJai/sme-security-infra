@@ -136,6 +136,54 @@ def _db() -> sqlite3.Connection:
           summary text not null,
           details_json text not null default '{}'
         );
+        create table if not exists helpdesk_tickets (
+          id integer primary key autoincrement,
+          ticket_ref text not null unique,
+          opened_at text not null,
+          priority text not null,
+          scenario text not null,
+          requester text,
+          target text not null,
+          status text not null,
+          first_response_at text,
+          resolved_at text,
+          recurrence_key text,
+          summary text not null,
+          resolution text,
+          data_classification text not null default 'simulation',
+          reopen_count integer not null default 0,
+          updated_at text not null
+        );
+        create table if not exists helpdesk_events (
+          id integer primary key autoincrement,
+          ticket_ref text not null,
+          event_type text not null,
+          event_at text not null,
+          actor text not null,
+          note text not null,
+          metadata_json text not null default '{}',
+          foreign key(ticket_ref) references helpdesk_tickets(ticket_ref)
+        );
+        create index if not exists helpdesk_events_ticket_time
+          on helpdesk_events(ticket_ref, event_at, id);
+        create table if not exists asset_history (
+          id integer primary key autoincrement,
+          asset_name text not null,
+          action text not null,
+          from_status text not null,
+          to_status text not null,
+          previous_owner text,
+          new_owner text,
+          ticket_ref text not null,
+          approved_by text not null,
+          reason text not null,
+          evidence_ref text,
+          changed_at text not null,
+          metadata_json text not null default '{}',
+          foreign key(asset_name) references assets(name)
+        );
+        create index if not exists asset_history_asset_time
+          on asset_history(asset_name, changed_at, id);
         """
     )
     return conn
@@ -499,6 +547,18 @@ def ops_db_upsert_asset(name: str, kind: str, status: str = "unknown", owner: st
     """Upsert an IT asset record in the local SQLite operations database."""
     now = dt.datetime.now(dt.UTC).isoformat()
     with _db() as conn:
+        existing = conn.execute(
+            "select kind, status, owner from assets where name = ?", (name,)
+        ).fetchone()
+        if existing and (
+            existing["kind"] == "endpoint" or kind == "endpoint"
+        ) and tuple(existing) != (kind, status, owner):
+            return {
+                "error": (
+                    "existing endpoint kind/status/owner changes must use "
+                    "scripts/asset-lifecycle.py"
+                )
+            }
         conn.execute(
             """
             insert into assets(name, kind, status, owner, metadata_json, updated_at)
@@ -512,6 +572,19 @@ def ops_db_upsert_asset(name: str, kind: str, status: str = "unknown", owner: st
             """,
             (name, kind, status, owner, json.dumps(metadata or {}, sort_keys=True), now),
         )
+        if existing is None and kind == "endpoint":
+            conn.execute(
+                """
+                insert into asset_history(
+                  asset_name, action, from_status, to_status, previous_owner,
+                  new_owner, ticket_ref, approved_by, reason, changed_at,
+                  metadata_json
+                ) values (?, 'register', 'untracked', ?, null, ?,
+                          'MCP-ASSET-REGISTER', 'workflow:homelab-mcp',
+                          'Initial endpoint registration', ?, '{}')
+                """,
+                (name, status, owner, now),
+            )
     return {"name": name, "updated_at": now}
 
 

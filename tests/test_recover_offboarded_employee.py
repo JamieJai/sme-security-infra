@@ -140,6 +140,23 @@ class RecoverOffboardedEmployeeTests(unittest.TestCase):
             metadata["offboarding_recovery"]["restored_status"],
             "assigned",
         )
+        with sqlite3.connect(self.db_path) as conn:
+            history = conn.execute(
+                """
+                select action, from_status, to_status, previous_owner, new_owner
+                from asset_history
+                """
+            ).fetchone()
+        self.assertEqual(
+            history,
+            (
+                "offboarding-recovery",
+                "recovery_pending",
+                "assigned",
+                "recovery.pilot",
+                "recovery.pilot",
+            ),
+        )
 
     def test_failed_recovery_keeps_asset_pending(self):
         result = self.run_script(

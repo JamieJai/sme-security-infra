@@ -31,14 +31,16 @@
 | 계정 및 권한 관리 | Verified | [onboard script](../../scripts/onboard-employee.sh), [offboard pilot](employee-offboarding-lifecycle-pilot.md) | AD 그룹을 권한 원천으로 사용하고 전용 test identity의 온보딩·차단·복구·재차단을 live 검증 |
 | Windows endpoint 운영 | Verified | [ODJ script](../../scripts/generate-windows-odj-package.sh), [runbook](../services/endpoint-management.md) | ODJ, 자산 등록, Wazuh, pilot 앱 배포 및 reboot 검증 |
 | 업무 협업 도구 운영 | Verified | Nextcloud, Talk, Postfix/Dovecot runbook | 개인 lab의 파일·메신저·메일 연동 운영으로 한정 |
-| 사용자 IT 이슈 진단 | Implemented | [diagnose script](../../scripts/helpdesk-diagnose.sh), [scenario](../operations/helpdesk-scenarios.md) | 6개 업무 장애를 read-only 진단과 후속 조치 workflow로 표준화 |
+| 사용자 IT 이슈 진단 | Implemented | [diagnose script](../../scripts/helpdesk-diagnose.sh), [scenario](../operations/helpdesk-scenarios.md) | 7개 업무 장애를 read-only 진단과 후속 조치 workflow로 표준화 |
+| Helpdesk 운영 지표 | Implemented | [ticket/KPI runbook](../operations/helpdesk-metrics-runbook.md), [tests](../../tests/test_helpdesk_workflow.py) | 모의 티켓의 priority, first response, resolution, reopen, recurrence 집계. 실제 SLA와 구분 |
+| IT 자산 lifecycle | Implemented | [asset runbook](../operations/asset-lifecycle-runbook.md), [tests](../../tests/test_asset_lifecycle.py) | 지급·이관·수리·회수·wipe·폐기의 승인형 상태 전이를 fixture로 검증 |
 | 반복 업무 자동화·프로세스 개선 | Verified | onboarding, health report, endpoint deployment scripts | 실행뿐 아니라 검증·리포트·SQLite 기록까지 자동화 |
 | 보안 요구사항을 고려한 운영 | Verified | Wazuh, 최소 권한 SMB, secret guard, egress guard | 일반 사용자 권한 상승 없이 앱 배포하고 보안 로그와 rollback 조건 운영 |
 | 문제 데이터화와 근본 해결 | Verified | `.codex/mcp/homelab_ops.sqlite`, Markdown reports, Wazuh incident handoff | 결과 상태와 증적을 저장하고 실패 후 배포 gate를 추가 |
 | macOS 이해 및 운영 | Gap | 설계 문서만 존재 | 실제 macOS/MDM 운영 경험으로 주장하지 않음 |
 | Google Workspace/Slack SaaS 운영 | Gap | Slack/Notion integration path는 있으나 production tenant 없음 | API 연계 경험과 production administration 경험을 분리 |
 | 물리 PC·복합기·NAC/DLP | Gap | Windows VM과 보안 lab 중심 | 실제 사무실 장비 운영 경험으로 주장하지 않음 |
-| 사용자 SLA·MTTR | Gap | scenario와 timestamp 기록 구조는 있으나 실제 사용자 표본 없음 | 실사용 지표가 아닌 workflow 설계로 표현 |
+| 사용자 SLA·MTTR | Implemented | simulation/live 분리 KPI report | 지표 산출 workflow 구현으로 표현하며 실제 사용자 SLA 달성 경험은 주장하지 않음 |
 
 ## 이력서용 프로젝트 요약
 
@@ -56,6 +58,8 @@
   8개 managed agent Active 확인을 배포 성공 조건으로 자동화
 - Ansible 반복 적용, Terraform plan, Markdown report, SQLite operation record,
   secret scan을 통해 변경 결과와 감사 증적을 관리
+- 모의 Helpdesk 티켓의 최초 응답·해결·재오픈·재발 지표와 endpoint
+  지급·이관·회수·wipe·폐기 상태 전이를 승인형 workflow로 구현
 
 ## 문제 해결 사례 1: Windows 표준 앱 배포
 
@@ -170,5 +174,4 @@ rollback에서 제외했다.
 |---:|---|---|
 | 1 | macOS 실제 장비 baseline | FileVault, 표준/관리자 계정 분리, inventory, 복구 절차 |
 | 2 | SaaS test tenant lifecycle | 사용자·그룹·MFA·session revoke·audit log |
-| 3 | Helpdesk 지표 | 실제 또는 명확히 표시한 모의 티켓에서 priority, resolution time, recurrence 집계 |
-| 4 | 자산 lifecycle | 지급, 사용자 매핑, 수리, 회수, wipe, 폐기 상태 전이 |
+| 3 | 실제 사용자/물리 장비 표본 | 구현된 KPI·자산 workflow에 실제 SLA와 wipe/폐기 증거를 fixture와 분리해 축적 |

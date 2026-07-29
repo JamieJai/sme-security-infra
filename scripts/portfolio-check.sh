@@ -27,10 +27,17 @@ required_files=(
   docs/operations/employee-onboarding-runbook.md
   docs/operations/employee-offboarding-runbook.md
   docs/operations/helpdesk-scenarios.md
+  docs/operations/helpdesk-metrics-runbook.md
+  docs/operations/asset-lifecycle-runbook.md
   scripts/onboard-employee.sh
   scripts/offboard-employee.sh
   scripts/recover-offboarded-employee.sh
   scripts/helpdesk-diagnose.sh
+  scripts/helpdesk-ticket.py
+  scripts/helpdesk-metrics.py
+  scripts/asset-lifecycle.py
+  scripts/it-manager-demo.sh
+  scripts/ops_db.py
   ansible/playbooks/employee-offboarding.yml
   ansible/playbooks/employee-offboarding-verify.yml
   ansible/playbooks/employee-offboarding-recovery.yml
@@ -39,6 +46,9 @@ required_files=(
   ansible/files/samba_user_password.py
   ansible/playbooks/wazuh-custom-detections.yml
   tests/test_identity_playbook_safety.py
+  tests/test_helpdesk_workflow.py
+  tests/test_asset_lifecycle.py
+  tests/test_register_endpoint.py
 )
 
 for command_name in git bash python3 ansible-playbook; do
@@ -62,6 +72,7 @@ bash -n \
   "$ROOT_DIR/scripts/offboard-employee.sh" \
   "$ROOT_DIR/scripts/recover-offboarded-employee.sh" \
   "$ROOT_DIR/scripts/helpdesk-diagnose.sh" \
+  "$ROOT_DIR/scripts/it-manager-demo.sh" \
   "$ROOT_DIR/scripts/verify-and-report.sh" \
   "$ROOT_DIR/scripts/portfolio-check.sh"
 pass "shell syntax"
@@ -87,6 +98,40 @@ with sqlite3.connect(os.environ["DEMO_DB"]) as db:
 assert row == ("helpdesk_diagnosis", "demo.user", "planned"), row
 PY_DEMO
 pass "isolated Helpdesk report and evidence record"
+
+DEMO_DIR="$demo_dir/full-demo" "$ROOT_DIR/scripts/it-manager-demo.sh" >/dev/null
+DEMO_DB="$demo_dir/full-demo/ops.sqlite" python3 - <<'PY_FULL_DEMO'
+import os
+import sqlite3
+
+with sqlite3.connect(os.environ["DEMO_DB"]) as db:
+    asset = db.execute(
+        "select status, owner from assets where name = 'PC-DEMO01'"
+    ).fetchone()
+    ticket = db.execute(
+        "select status, data_classification from helpdesk_tickets "
+        "where ticket_ref = 'HD-DEMO-001'"
+    ).fetchone()
+    history_count = db.execute("select count(*) from asset_history").fetchone()[0]
+    offboard_plan = db.execute(
+        "select count(*) from operations "
+        "where operation_type = 'employee_offboarding_plan'"
+    ).fetchone()[0]
+assert asset == ("assigned", "demo.user"), asset
+assert ticket == ("resolved", "simulation"), ticket
+assert history_count == 3, history_count
+assert offboard_plan == 1, offboard_plan
+PY_FULL_DEMO
+pass "isolated end-to-end IT Manager demo"
+
+python3 -m unittest -q "$ROOT_DIR/tests/test_helpdesk_workflow.py"
+pass "Helpdesk ticket lifecycle and KPI tests"
+
+python3 -m unittest -q "$ROOT_DIR/tests/test_asset_lifecycle.py"
+pass "endpoint asset lifecycle safety gates"
+
+python3 -m unittest -q "$ROOT_DIR/tests/test_register_endpoint.py"
+pass "endpoint registration DB isolation and lifecycle guard"
 
 python3 -m unittest -q "$ROOT_DIR/tests/test_offboard_employee.py"
 pass "offboarding plan and safety gates"

@@ -222,6 +222,10 @@ PC 지급과 join package 발급은 asset record와 연결한다. `scripts/regis
 
 ODJ 사용 시 raw `odj.blob` 경로가 아니라 package directory를 기록한다. `odj.blob`은 장비별 민감 자료로 취급하고 Git, Notion, Slack, raw log에 저장하지 않는다.
 
+기존 endpoint의 owner/status 변경은 `register-endpoint.sh`나 MCP generic upsert로
+덮어쓰지 않는다. 지급, 이관, 수리, 회수, wipe, 폐기는
+`docs/operations/asset-lifecycle-runbook.md`의 승인형 상태 전이를 사용한다.
+
 ## ODJ Apply Test Client
 
 ODJ 적용 검증은 workgroup 상태 Windows client가 필요하다. `win-mgmt01`은 이미 `toss.lan`에 join된 management host이므로 apply 테스트 대상으로 쓰지 않는다.

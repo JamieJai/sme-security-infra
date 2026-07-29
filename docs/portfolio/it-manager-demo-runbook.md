@@ -41,57 +41,40 @@ sed -n '50,165p' docs/operations/employee-onboarding-runbook.md
 
 실제 계정 생성은 demo 기본 범위에 포함하지 않는다.
 
-## 3. 2분: 사용자 문의를 운영 workflow로 바꾸기
+## 3. 2분: 사용자 문의와 자산을 운영 workflow로 바꾸기
 
-로컬 임시 경로와 임시 SQLite DB만 사용해 SSO 장애 triage report를 만든다.
+로컬 임시 경로와 임시 SQLite DB만 사용해 endpoint 등록·지급, SSO 티켓,
+triage, KPI, 오프보딩 plan을 재현한다. live inventory에는 접속하지 않는다.
 
 ```bash
 demo_dir="$(mktemp -d /tmp/it-manager-demo.XXXXXX)"
-
-OPS_DB="$demo_dir/ops.sqlite" \
-  ./scripts/helpdesk-diagnose.sh \
-  --scenario sso \
-  --username demo.user \
-  --symptom "SSO redirect 후 로그인 화면으로 돌아옴" \
-  --network "office-wifi" \
-  --occurred-at "2026-07-29 10:00 KST" \
-  --output-dir "$demo_dir"
-
-printf 'Demo evidence: %s\n' "$demo_dir"
+DEMO_DIR="$demo_dir" ./scripts/it-manager-demo.sh
 ```
 
-생성된 Markdown에서 다음을 확인한다.
+생성된 SQLite와 Markdown에서 다음을 확인한다.
 
-- 요청 context
-- read-only 확인 항목
-- 변경 승인 전까지 실행하지 않는 조치
-- asset/operation evidence
+- endpoint `registered → in_stock → assigned` 이력
+- ticket `open → first response → resolved` event와 `simulation` 분류
+- priority별 response/resolution SLA report
+- read-only 진단 계획과 asset context
+- 오프보딩 plan이 assigned asset을 식별하지만 상태를 바꾸지 않음
 
 `--execute`는 live lab owner가 read-only Ansible 진단을 수행할 때만 사용한다.
 
-## 4. 1분: 변경 없는 오프보딩 plan
+## 4. 1분: 승인과 상태 전이 설명
 
-임시 DB에 endpoint asset을 등록한 뒤 plan mode가 접근 또는 자산 상태를 변경하지
-않고 회수 대상을 식별하는 흐름을 보여준다.
+통합 데모가 생성한 자산 report와 runbook을 연다.
 
 ```bash
-OPS_DB="$demo_dir/ops.sqlite" ./scripts/register-endpoint.sh \
-  --employee-id DEMO-001 \
-  --username demo.user \
-  --computer-name PC-DEMO01 \
-  --output-dir "$demo_dir"
-
-OPS_DB="$demo_dir/ops.sqlite" ./scripts/offboard-employee.sh \
-  --username demo.user \
-  --ticket-ref OFF-DEMO-001 \
-  --reason "Portfolio fixture" \
-  --output-dir "$demo_dir"
+sed -n '1,180p' docs/operations/asset-lifecycle-runbook.md
 ```
 
 강조할 내용:
 
-- plan mode에서는 AD, Keycloak, Nextcloud와 asset status가 바뀌지 않는다.
-- execute에는 ticket, approver, exact username confirmation이 필요하다.
+- 자산 execute에는 ticket, approver, expected status, exact asset 확인이 필요하다.
+- wipe 완료와 폐기에는 evidence reference가 필요하다.
+- 오프보딩 plan에서는 AD, Keycloak, Nextcloud와 asset status가 바뀌지 않는다.
+- 오프보딩 execute에는 ticket, approver, exact username confirmation이 필요하다.
 - 삭제 대신 disable-first와 별도 recovery 절차를 사용한다.
 - live 결과와 중간 실패는
   `docs/portfolio/employee-offboarding-lifecycle-pilot.md`에서 확인한다.
@@ -137,6 +120,8 @@ sed -n '166,218p' \
 - 지원 핵심 문서가 Git tracking 대상인지 확인
 - secret guard 실행
 - 주요 shell syntax
+- 비파괴 IT Manager 통합 demo
+- Helpdesk ticket/KPI와 asset lifecycle 단위 테스트
 - 오프보딩 plan 비변경성과 execute safety gate
 - Kali egress guard unit test
 - Wazuh XML parse

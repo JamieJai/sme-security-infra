@@ -10,6 +10,9 @@
 - 계정 disable/delete, AD computer object cleanup, service restart, firewall 변경, Terraform apply 같은 운영 변경은 별도 승인 후 실행한다.
 - 결과는 Markdown artifact 또는 SQLite operations DB에 남기고, 재발 가능성이 있으면 runbook이나 automation task로 전환한다.
 - PC 관련 문의는 먼저 `scripts/register-endpoint.sh`로 등록된 endpoint asset record가 있는지 확인한다.
+- ticket event와 운영 지표는
+  `docs/operations/helpdesk-metrics-runbook.md` 기준으로 기록하고 모의 문의는
+  `simulation`으로 분류한다.
 
 ## 공통 접수 템플릿
 
@@ -68,6 +71,11 @@ follow_up:
 
 생성 결과는 `artifacts/helpdesk/`와 `.codex/mcp/homelab_ops.sqlite`에 기록된다.
 PC 이름이나 username이 입력되면 `.codex/mcp/homelab_ops.sqlite`의 endpoint asset record를 조회해 owner, employee ID, package path, asset tag 같은 context를 report에 포함한다.
+
+티켓 접수, 최초 응답, 해결, 재오픈과 기간별 KPI는 각각
+`scripts/helpdesk-ticket.py`, `scripts/helpdesk-metrics.py`로 기록한다. 진단
+리포트의 `TBD` 항목은 자동 추측값이 아니라 담당자가 read-only 결과를 검토한 뒤
+티켓 resolution에 확정할 내용이다.
 
 ## Scenario 1. Windows PC 도메인 가입 실패
 

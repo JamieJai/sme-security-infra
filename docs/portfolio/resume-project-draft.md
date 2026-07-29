@@ -12,7 +12,7 @@
 - **Repository:** `[GitHub URL]`
 
 **기술:** Windows 11, Samba AD, Keycloak, Nextcloud, Wazuh, Proxmox,
-Ansible, Terraform, PowerShell, Bash, SQLite
+Ansible, Terraform, PowerShell, Python, Bash, SQLite
 
 - Samba AD 계정과 부서 그룹 생성부터 Keycloak SSO, Nextcloud 권한, Mail,
   Wazuh baseline 검증까지 연결한 입사자 온보딩 workflow를 구현했습니다.
@@ -27,6 +27,8 @@ Ansible, Terraform, PowerShell, Bash, SQLite
   자동화했습니다.
 - Ansible 반복 적용, Terraform plan, Markdown report, SQLite operation record,
   secret scan을 통해 변경 결과와 운영 증적을 관리했습니다.
+- 모의 Helpdesk ticket의 priority, 최초 응답, 해결, 재오픈, 재발 지표와
+  endpoint 지급·이관·수리·회수·wipe·폐기 상태 전이를 구현했습니다.
 
 ## 상세 프로젝트 소개용
 
@@ -74,6 +76,16 @@ Ansible, Terraform, PowerShell, Bash, SQLite
   분리했습니다.
 - manager 상위 service가 active여도 receiver가 종료될 수 있는 문제를 확인하고,
   TCP 1514와 전체 agent Active를 post-deploy gate로 추가했습니다.
+
+### Helpdesk와 자산 운영 데이터
+
+- 티켓을 open, first response, resolve, reopen event로 기록하고 priority별
+  응답·해결 SLA와 recurrence key를 Markdown report로 집계합니다.
+- 모의 티켓은 `simulation`으로 분류해 실제 사용자 SLA와 구분합니다.
+- endpoint owner/status 직접 덮어쓰기를 막고 지급, 이관, 수리, 회수, wipe,
+  폐기를 허용된 상태 전이와 승인·증거 gate로 관리합니다.
+- 이 항목은 임시 SQLite fixture로 검증한 workflow이며 실제 물리 장비 폐기
+  경험으로 표현하지 않습니다.
 
 ## 사용하지 않을 표현
 

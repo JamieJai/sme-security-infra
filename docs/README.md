@@ -17,6 +17,8 @@
 | 신입사원 온보딩 운영 절차를 본다 | [operations/employee-onboarding-runbook.md](operations/employee-onboarding-runbook.md) |
 | 퇴사자 접근 차단과 자산 회수를 계획한다 | [operations/employee-offboarding-runbook.md](operations/employee-offboarding-runbook.md) |
 | 사용자 문의/장애 진단 시나리오를 본다 | [operations/helpdesk-scenarios.md](operations/helpdesk-scenarios.md) |
+| Helpdesk ticket과 KPI 운영 기준을 본다 | [operations/helpdesk-metrics-runbook.md](operations/helpdesk-metrics-runbook.md) |
+| Endpoint 자산 상태 전이를 관리한다 | [operations/asset-lifecycle-runbook.md](operations/asset-lifecycle-runbook.md) |
 | 신규 입사자용 IT 사용 가이드를 본다 | [getting-started/employee-it-onboarding.md](getting-started/employee-it-onboarding.md) |
 | 전체 자동화 목표를 본다 | [getting-started/full-rebuild-roadmap.md](getting-started/full-rebuild-roadmap.md) |
 | Ansible playbook 목록과 위험도를 확인한다 | [reference/ansible-playbook-catalog.md](reference/ansible-playbook-catalog.md) |
@@ -70,10 +72,29 @@ Helpdesk 진단 리포트 생성:
 ./scripts/helpdesk-diagnose.sh --scenario domain-join --computer-name PC-2026071001
 ```
 
+비파괴 IT Manager fixture demo:
+
+```bash
+./scripts/it-manager-demo.sh
+```
+
+Helpdesk KPI report:
+
+```bash
+python3 scripts/helpdesk-metrics.py
+```
+
 Endpoint 자산 등록:
 
 ```bash
 ./scripts/register-endpoint.sh --employee-id 20260710-001 --username kim.chulsoo --computer-name PC-2026071001
+```
+
+Endpoint 자산 지급 plan:
+
+```bash
+python3 scripts/asset-lifecycle.py --asset PC-2026071001 --action assign \
+  --owner kim.chulsoo --ticket-ref ASSET-2026-001 --reason "Endpoint assignment"
 ```
 
 퇴사자 접근 차단 plan:

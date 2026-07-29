@@ -27,6 +27,11 @@
 - Slack은 `SLACK_WEBHOOK_URL` 기반으로 온보딩 결과 알림을 보낼 수 있다. 다음 단계는 온보딩 외 verify, backup, certificate, Wazuh 이벤트까지 공통 알림으로 확장하는 것이다.
 - Notion은 `homelab` MCP의 `notion_create_page`, `notion_publish_project_file` helper를 통해 운영 문서를 publish할 수 있게 한다. 토큰과 부모 페이지 ID는 env var로만 주입한다.
 - Helpdesk scenario는 `docs/operations/helpdesk-scenarios.md`에 PC 도메인 가입 실패, AD 로그인 실패, SSO 실패, 부서 폴더 미노출, Mail 로그인 실패, IT health 실패 기준으로 정리됐다.
+- Helpdesk ticket lifecycle과 KPI report가 구현됐다. priority, first response,
+  resolution time, reopen, recurrence를 집계하며 모의 데이터는 `simulation`으로
+  분리한다.
+- Endpoint 자산 lifecycle은 등록, 재고, 지급/이관, 수리, 회수, wipe, 폐기
+  상태 전이와 승인/stale-state/evidence gate를 임시 DB fixture로 검증했다.
 - Windows ODJ package 발급과 적용, endpoint 자산 등록, Wazuh agent, pilot 표준 앱 SYSTEM 배포와 reboot 검증이 완료됐다.
 - Wazuh Windows EventChannel과 Telegram 알림이 적용됐고, manager 재시작 후 TCP 1514와 전체 agent Active를 확인하는 배포 gate가 추가됐다.
 - macOS/MDM, Google Workspace production tenant, 물리 복합기/NAC/DLP 운영은 구현 완료 범위가 아니며 지원서에서도 실제 운영 경험으로 주장하지 않는다.
@@ -74,7 +79,7 @@
 
 1. `verify-and-report.sh`: 전체 검증, Markdown, SQLite, 선택적 Slack/Notion 경로 구현.
 2. Windows onboarding: no-secret package, ODJ, 사용자 가이드, 자산 등록 구현.
-3. Helpdesk: 6개 scenario와 read-only 진단 리포트 구현.
+3. Helpdesk: 7개 scenario와 read-only 진단 리포트 구현.
 4. 비전문가용 SSO, Mail, Nextcloud, Talk 가이드 작성.
 5. Wazuh/Telegram: Windows 수집, 탐지 fixture, 알림 및 배포 후 receiver gate 구현.
 6. 지원 자료: 루트 README, JD-증거 매트릭스, 10분 demo runbook 추가.
@@ -84,12 +89,17 @@
    재실행, final containment 검증.
 9. 연계 서비스 live pilot: Grafana/Nextcloud OIDC active session exact-user
    revoke와 Nextcloud local user disable/enable 검증.
+10. Helpdesk KPI: ticket event 원장, priority별 응답/해결 SLA, 재오픈·재발
+    report와 simulation/live 분리.
+11. 자산 lifecycle: 등록·재고·지급·이관·수리·회수·wipe·폐기 상태 전이,
+    승인·exact confirmation·evidence gate.
 
 ## 다음 우선순위
 
 1. macOS 실제 장비: FileVault, 표준/관리자 계정 분리, inventory, 복구 절차.
-2. Helpdesk 지표: priority, first response, resolution time, recurrence를 집계하는 report.
-3. 자산 lifecycle: 지급, 사용자 변경, 수리, 회수, wipe, 폐기 상태 전이.
+2. SaaS test tenant: 사용자, 그룹, MFA, session revoke, audit log lifecycle.
+3. 실제 사용자/장비 표본: 실제 SLA와 물리 장비 wipe·폐기 증거를 fixture와
+   분리해 축적.
 
 ## Notion MCP 운영 기준
 

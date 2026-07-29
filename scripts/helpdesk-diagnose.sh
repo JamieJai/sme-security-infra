@@ -20,7 +20,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   ./scripts/helpdesk-diagnose.sh \
-    --scenario domain-join|ad-login|sso|nextcloud-folder|mail-login|it-health \
+    --scenario domain-join|ad-login|windows-gpo|sso|nextcloud-folder|mail-login|it-health \
     [--username USERNAME] \
     [--computer-name COMPUTER_NAME] \
     [--symptom TEXT] \
@@ -71,7 +71,7 @@ done
 
 [[ -n "$scenario" ]] || die "--scenario is required"
 case "$scenario" in
-  domain-join|ad-login|sso|nextcloud-folder|mail-login|it-health) ;;
+  domain-join|ad-login|windows-gpo|sso|nextcloud-folder|mail-login|it-health) ;;
   *) die "unsupported scenario: $scenario" ;;
 esac
 
@@ -185,6 +185,21 @@ case "$scenario" in
     [[ -n "$computer_name" ]] && add_command "ansible active_dc -i ansible/inventory/hosts -b -m command -a 'samba-tool computer show $computer_name'"
     [[ -n "$username" ]] && add_command "ansible active_dc -i ansible/inventory/hosts -b -m command -a 'samba-tool user show $username'"
     followups=("DC discovery 실패 시 네트워크/VPN/DNS부터 보정" "사용자 계정 disabled/password expired 상태면 계정 lifecycle runbook으로 이관" "trust relationship 재설정은 운영 변경 승인 후 수행")
+    ;;
+  windows-gpo)
+    scenario_title="도메인 로그인 후 GPO 또는 공유 드라이브 미적용"
+    required_context=("username" "PC name" "gpresult summary" "missing policy or drive")
+    manual_checks=(
+      "사용자 로그인 세션에서 whoami, gpresult /r, net use 확인"
+      "HKCU wallpaper 값과 Application Event ID 4098 확인"
+      "선택된 DC의 SYSVOL 접근과 사용자 Kerberos ticket 확인"
+    )
+    add_command "ansible storage_server -i ansible/inventory/hosts -b -m command -a 'testparm -s'"
+    if [[ -n "$username" ]]; then
+      add_command "ansible storage_server -i ansible/inventory/hosts -b -m shell -a \"wbinfo -r '$username'\""
+    fi
+    add_command "ansible active_dc -i ansible/inventory/hosts -b -m command -a 'samba-tool spn list STORAGE01$'"
+    followups=("GPO result와 실제 HKCU 적용 상태를 분리해 확인" "SMB idmap 또는 SPN 누락이면 storage runbook으로 이관" "GPO, Samba, SPN 변경은 영향 범위 확인과 승인 후 수행")
     ;;
   sso)
     scenario_title="Keycloak SSO 로그인 실패"

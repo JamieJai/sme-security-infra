@@ -243,11 +243,30 @@ with sqlite3.connect(db_path) as conn:
           operation_type text not null, target text not null, status text not null,
           summary text not null, details_json text not null default '{}')"""
     )
+    conn.execute(
+        """create table if not exists asset_history (
+          id integer primary key autoincrement,
+          asset_name text not null,
+          action text not null,
+          from_status text not null,
+          to_status text not null,
+          previous_owner text,
+          new_owner text,
+          ticket_ref text not null,
+          approved_by text not null,
+          reason text not null,
+          evidence_ref text,
+          changed_at text not null,
+          metadata_json text not null default '{}',
+          foreign key(asset_name) references assets(name)
+        )"""
+    )
 
     if mode == "execute":
         for asset in assets:
             row = conn.execute(
-                "select metadata_json from assets where name = ?", (asset["name"],)
+                "select metadata_json, status, owner from assets where name = ?",
+                (asset["name"],),
             ).fetchone()
             if row is None:
                 continue
@@ -266,6 +285,28 @@ with sqlite3.connect(db_path) as conn:
                 """,
                 (json.dumps(metadata, sort_keys=True), now, asset["name"]),
             )
+            if row[1] != "recovery_pending":
+                conn.execute(
+                    """
+                    insert into asset_history(
+                      asset_name, action, from_status, to_status, previous_owner,
+                      new_owner, ticket_ref, approved_by, reason, changed_at,
+                      metadata_json
+                    ) values (?, 'offboard-recovery-queue', ?, 'recovery_pending',
+                              ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        asset["name"],
+                        row[1],
+                        row[2],
+                        row[2],
+                        os.environ["OFFBOARD_TICKET"],
+                        os.environ["OFFBOARD_APPROVED_BY"],
+                        os.environ["OFFBOARD_REASON"],
+                        now,
+                        '{"workflow":"employee_offboarding"}',
+                    ),
+                )
 
     conn.execute(
         """

@@ -18,7 +18,8 @@
 | 퇴사자 오프보딩 | disable-first plan/apply 분리, 부서 권한·SSO session 회수, 자산 회수 대기 증적 |
 | Windows endpoint | Offline Domain Join, 자산 등록, Wazuh agent, pilot 범위 표준 앱 배포 |
 | 권한 분리 | 일반 사용자에게 관리자 암호를 주지 않고 SYSTEM context로 승인 앱 설치 |
-| 사용자 지원 | 6개 helpdesk scenario, read-only 진단, 영향·원인·후속 조치 리포트 |
+| 사용자 지원 | 7개 helpdesk scenario, 티켓 lifecycle, SLA·재발 KPI, read-only 진단 |
+| 자산 lifecycle | 등록, 재고, 지급·이관, 수리·회수, wipe·폐기 승인 상태 전이 |
 | 협업 환경 | Nextcloud, Talk, Mail, 부서별 파일 공유, 사용자용 IT 가이드 |
 | 보안 가시성 | Wazuh 8개 managed agent, Windows EventChannel, custom detection, Telegram 알림 |
 | 운영 품질 | Ansible idempotency, Terraform plan, backup/restore test, health report, GitOps |
@@ -64,6 +65,18 @@ Nextcloud disable을 검증하고 지급 자산은 기존 상태를 보존한 �
 - [퇴사자 오프보딩 runbook](docs/operations/employee-offboarding-runbook.md)
 - [오프보딩 wrapper](scripts/offboard-employee.sh)
 - [전용 test identity lifecycle pilot](docs/portfolio/employee-offboarding-lifecycle-pilot.md)
+
+### 5. 모의 티켓과 자산을 데이터로 관리하는 운영 workflow
+
+Helpdesk 티켓을 접수, 최초 응답, 해결, 재오픈 event로 기록하고 priority별 응답·
+해결 시간, SLA 준수율, 재발 key를 집계한다. Endpoint는 직접 상태를 덮어쓰지 않고
+승인된 전이만 허용하며 wipe·폐기에는 증거 reference를 요구한다. 이 결과는
+`simulation` fixture로 검증했으며 실제 사용자 SLA나 물리 폐기 경험으로 주장하지
+않는다.
+
+- [Helpdesk 티켓·KPI runbook](docs/operations/helpdesk-metrics-runbook.md)
+- [Endpoint 자산 lifecycle runbook](docs/operations/asset-lifecycle-runbook.md)
+- [비파괴 통합 데모](scripts/it-manager-demo.sh)
 
 ## 아키텍처
 
@@ -125,6 +138,7 @@ flowchart LR
 - AD/SSO/Mail/Nextcloud 연동 및 입사자 workflow
 - disable-first 오프보딩과 복구를 전용 test identity로 live 검증하고 재실행 수렴 확인
 - helpdesk 진단 리포트, health report, backup/restore 검증
+- 모의 Helpdesk ticket lifecycle·KPI와 자산 상태 전이 fixture 검증
 
 **아직 실무 경험으로 주장하지 않는 범위**
 
@@ -133,6 +147,7 @@ flowchart LR
 - Google Workspace production administration
 - 물리 복합기, NAC, DLP의 실제 사무실 운영
 - 대규모 endpoint fleet와 실제 사용자 SLA/MTTR
+- 실제 장비 wipe·물리 폐기와 자산 감사
 
 이 공백과 후속 계획도
 [지원 증거 매트릭스](docs/portfolio/toss-it-manager-application.md)에 공개한다.

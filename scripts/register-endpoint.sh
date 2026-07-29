@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT_DIR="$ROOT_DIR/artifacts/endpoint-assets"
-OPS_DB="$ROOT_DIR/.codex/mcp/homelab_ops.sqlite"
+OPS_DB="${OPS_DB:-$ROOT_DIR/.codex/mcp/homelab_ops.sqlite}"
 
 employee_id=""
 username=""
@@ -163,19 +163,60 @@ with sqlite3.connect(db_path) as conn:
       id integer primary key autoincrement, created_at text not null,
       operation_type text not null, target text not null, status text not null,
       summary text not null, details_json text not null default '{}')""")
+    conn.execute("""create table if not exists asset_history (
+      id integer primary key autoincrement,
+      asset_name text not null,
+      action text not null,
+      from_status text not null,
+      to_status text not null,
+      previous_owner text,
+      new_owner text,
+      ticket_ref text not null,
+      approved_by text not null,
+      reason text not null,
+      evidence_ref text,
+      changed_at text not null,
+      metadata_json text not null default '{}',
+      foreign key(asset_name) references assets(name)
+    )""")
+    existing = conn.execute(
+        "select status, owner from assets where name = ?", (computer,)
+    ).fetchone()
+    if existing and existing != (status, username):
+        raise SystemExit(
+            "Error: existing asset status/owner changes must use asset-lifecycle.py"
+        )
     conn.execute(
         """
         insert into assets(name, kind, status, owner, metadata_json, updated_at)
         values (?, ?, ?, ?, ?, ?)
         on conflict(name) do update set
           kind=excluded.kind,
-          status=excluded.status,
-          owner=excluded.owner,
           metadata_json=excluded.metadata_json,
           updated_at=excluded.updated_at
         """,
         (computer, "endpoint", status, username, json.dumps(metadata, sort_keys=True), now),
     )
+    if existing is None:
+        conn.execute(
+            """
+            insert into asset_history(
+              asset_name, action, from_status, to_status, previous_owner,
+              new_owner, ticket_ref, approved_by, reason, changed_at,
+              metadata_json
+            ) values (?, 'register', 'untracked', ?, null, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                computer,
+                status,
+                username,
+                f"ENDPOINT-{os.environ['REGISTER_EMPLOYEE_ID']}",
+                "workflow:register-endpoint",
+                "Initial endpoint registration",
+                now,
+                "{}",
+            ),
+        )
     conn.execute(
         "insert into operations(created_at, operation_type, target, status, summary, details_json) values (?, ?, ?, ?, ?, ?)",
         (now, "endpoint_register", computer, "success", f"Endpoint asset registered for {username}", json.dumps(details, sort_keys=True)),
@@ -226,6 +267,7 @@ For post-join login issues:
 
 - Do not store passwords, ODJ blob contents, tokens, webhook URLs, or vault values in this report.
 - AD computer object disable/delete and package recovery require approval.
+- Existing asset owner/status changes must use \`scripts/asset-lifecycle.py\`.
 EOF_REPORT
 
 cat <<EOF

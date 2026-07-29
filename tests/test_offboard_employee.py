@@ -180,6 +180,12 @@ class OffboardEmployeePlanTests(unittest.TestCase):
                 limit 1
                 """
             ).fetchone()
+            history = conn.execute(
+                """
+                select action, from_status, to_status, previous_owner, new_owner
+                from asset_history
+                """
+            ).fetchone()
 
         self.assertEqual(asset[0:2], ("recovery_pending", "demo.user"))
         metadata = json.loads(asset[2])
@@ -192,6 +198,16 @@ class OffboardEmployeePlanTests(unittest.TestCase):
         details = json.loads(operation[2])
         self.assertEqual(details["apply_return_code"], 0)
         self.assertEqual(details["verify_return_code"], 0)
+        self.assertEqual(
+            history,
+            (
+                "offboard-recovery-queue",
+                "assigned",
+                "recovery_pending",
+                "demo.user",
+                "demo.user",
+            ),
+        )
 
     def test_failed_apply_still_queues_physical_asset_recovery(self):
         result = self.run_script(
