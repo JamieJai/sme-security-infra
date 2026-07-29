@@ -144,17 +144,33 @@ Keycloak에 사용자가 cache되지 않았거나 Nextcloud local user가 생성
 
 ## Recovery
 
-승인 오류 또는 복직으로 접근을 복구할 때:
+승인 오류 또는 복직으로 접근을 복구할 때도 plan과 execute를 분리한다. 먼저
+복구 대상 group과 asset previous status를 확인한다.
 
 ```bash
-sudo samba-tool user enable kim.chulsoo
-sudo samba-tool group addmembers IT_Admins kim.chulsoo
-sudo -u www-data php /var/www/nextcloud/occ user:enable kim.chulsoo
+./scripts/recover-offboarded-employee.sh \
+  --username kim.chulsoo \
+  --ticket-ref REC-2026-001 \
+  --reason "Approved employment restoration" \
+  --group IT_Admins
+```
+
+승인 후 실제 복구:
+
+```bash
+./scripts/recover-offboarded-employee.sh \
+  --username kim.chulsoo \
+  --ticket-ref REC-2026-001 \
+  --reason "Approved employment restoration" \
+  --group IT_Admins \
+  --approved-by it.manager \
+  --execute \
+  --confirm-username kim.chulsoo
 ```
 
 그룹은 기존 티켓과 offboarding report에 있던 항목만 복구한다. Keycloak session은
-복구하지 않으며 사용자가 새로 로그인하게 한다. asset status는
-`offboarding.previous_status`를 확인한 뒤 별도 승인 operation으로 되돌린다.
+복구하지 않으며 사용자가 새로 로그인하게 한다. identity와 group verification이
+통과한 경우에만 asset status를 `offboarding.previous_status`로 되돌린다.
 
 ## 검증 및 테스트
 
@@ -162,13 +178,18 @@ repository 수준 검증:
 
 ```bash
 python3 -m unittest -q tests/test_offboard_employee.py
+python3 -m unittest -q tests/test_recover_offboarded_employee.py
 cd ansible
 ansible-playbook -i inventory/hosts --syntax-check \
   playbooks/employee-offboarding.yml
 ansible-playbook -i inventory/hosts --syntax-check \
   playbooks/employee-offboarding-verify.yml
+ansible-playbook -i inventory/hosts --syntax-check \
+  playbooks/employee-offboarding-recovery.yml
+ansible-playbook -i inventory/hosts --syntax-check \
+  playbooks/employee-offboarding-recovery-verify.yml
 ```
 
 fixture test는 임시 SQLite DB를 사용해 plan mode가 자산 상태를 바꾸지 않는지,
-execute gate와 보호 계정 차단이 동작하는지 확인한다. 실제 계정 차단 검증은
-승인된 test identity로 별도 실행해야 한다.
+execute gate와 보호 계정 차단, 성공 검증 전 asset recovery 차단이 동작하는지
+확인한다. 실제 계정 차단과 복구 검증은 승인된 test identity로 별도 실행한다.

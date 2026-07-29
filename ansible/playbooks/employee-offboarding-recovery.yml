@@ -1,0 +1,126 @@
+---
+- name: Validate employee offboarding recovery authorization
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+  vars:
+    offboarding_protected_users:
+      - administrator
+      - guest
+      - krbtgt
+      - sysadmin
+  tasks:
+    - name: Require an explicitly authorized recovery request
+      ansible.builtin.assert:
+        that:
+          - offboarding_recovery_authorized | default(false) | bool
+          - offboard_user_name is defined
+          - offboard_user_name is match('^[a-z0-9][a-z0-9._-]{0,63}$')
+          - offboard_confirm_user | default('') == offboard_user_name
+          - offboarding_ticket_ref | default('') | length > 0
+          - offboarding_approved_by | default('') | length > 0
+          - offboarding_recovery_groups | default([]) | length > 0
+          - >-
+            offboarding_recovery_groups
+            | difference(nextcloud_oidc_department_groups)
+            | length == 0
+          - offboard_user_name | lower not in offboarding_protected_users
+        fail_msg: >-
+          Recovery requires authorization, a ticket, an approver, an exact
+          username confirmation, and approved managed groups.
+
+- name: Re-enable the AD identity and approved access groups
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Read the requested AD user
+      ansible.builtin.command:
+        argv: [samba-tool, user, show, "{{ offboard_user_name }}"]
+      register: offboarding_recovery_ad_user
+      changed_when: false
+
+    - name: Read the AD user account control value
+      ansible.builtin.set_fact:
+        offboarding_recovery_ad_uac: >-
+          {{
+            (
+              offboarding_recovery_ad_user.stdout
+              | regex_findall('(?m)^userAccountControl:\\s*(\\d+)\\s*$')
+              | first
+            )
+            | int
+          }}
+
+    - name: Enable the AD user
+      ansible.builtin.command:
+        argv: [samba-tool, user, enable, "{{ offboard_user_name }}"]
+      when: ((offboarding_recovery_ad_uac | int) // 2) % 2 == 1
+      changed_when: true
+
+    - name: Read approved group memberships
+      ansible.builtin.command:
+        argv: [samba-tool, group, listmembers, "{{ item }}"]
+      loop: "{{ offboarding_recovery_groups }}"
+      register: offboarding_recovery_group_members
+      changed_when: false
+
+    - name: Restore only approved managed groups
+      ansible.builtin.command:
+        argv:
+          - samba-tool
+          - group
+          - addmembers
+          - "{{ item.item }}"
+          - "{{ offboard_user_name }}"
+      loop: "{{ offboarding_recovery_group_members.results }}"
+      when: offboard_user_name not in item.stdout_lines
+      changed_when: true
+
+- name: Re-enable the matching Nextcloud user when present
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+  tasks:
+    - name: Read the matching Nextcloud user
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -u
+          - www-data
+          - php
+          - "{{ nextcloud_occ }}"
+          - user:info
+          - "{{ offboard_user_name }}"
+      register: offboarding_recovery_nextcloud_user
+      failed_when: false
+      changed_when: false
+
+    - name: Enable the matching Nextcloud user
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -u
+          - www-data
+          - php
+          - "{{ nextcloud_occ }}"
+          - user:enable
+          - "{{ offboard_user_name }}"
+      when:
+        - offboarding_recovery_nextcloud_user.rc == 0
+        - "'enabled: false' in offboarding_recovery_nextcloud_user.stdout"
+      changed_when: true
+
+    - name: Report a Nextcloud user that was not provisioned
+      ansible.builtin.debug:
+        msg: >-
+          No local Nextcloud user matched {{ offboard_user_name }}. The AD
+          identity and explicitly approved groups were restored.
+      when: offboarding_recovery_nextcloud_user.rc != 0

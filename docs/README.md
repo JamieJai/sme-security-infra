@@ -81,6 +81,12 @@ Endpoint 자산 등록:
 ./scripts/offboard-employee.sh --username kim.chulsoo --ticket-ref OFF-2026-001 --reason "Employment ended"
 ```
 
+승인 오류 또는 복직 복구 plan:
+
+```bash
+./scripts/recover-offboarded-employee.sh --username kim.chulsoo --ticket-ref REC-2026-001 --reason "Approved recovery" --group IT_Admins
+```
+
 Wazuh agent 설치/재배포:
 
 ```bash

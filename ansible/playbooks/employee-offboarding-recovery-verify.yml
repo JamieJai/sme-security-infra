@@ -1,0 +1,89 @@
+---
+- name: Validate offboarding recovery verification inputs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tags: [always]
+  tasks:
+    - name: Require the employee username and approved groups
+      ansible.builtin.assert:
+        that:
+          - offboard_user_name is defined
+          - offboard_user_name is match('^[a-z0-9][a-z0-9._-]{0,63}$')
+          - offboarding_recovery_groups | default([]) | length > 0
+        fail_msg: Set offboard_user_name and offboarding_recovery_groups.
+
+- name: Verify AD identity and approved access recovery
+  hosts: active_dc
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the recovered AD user
+      ansible.builtin.command:
+        argv: [samba-tool, user, show, "{{ offboard_user_name }}"]
+      register: offboarding_recovery_verify_ad_user
+      changed_when: false
+
+    - name: Read the resulting AD user account control value
+      ansible.builtin.set_fact:
+        offboarding_recovery_verify_ad_uac: >-
+          {{
+            (
+              offboarding_recovery_verify_ad_user.stdout
+              | regex_findall('(?m)^userAccountControl:\\s*(\\d+)\\s*$')
+              | first
+            )
+            | int
+          }}
+
+    - name: Verify the AD user is enabled
+      ansible.builtin.assert:
+        that:
+          - ((offboarding_recovery_verify_ad_uac | int) // 2) % 2 == 0
+        fail_msg: "AD account {{ offboard_user_name }} remains disabled."
+
+    - name: Read approved group memberships
+      ansible.builtin.command:
+        argv: [samba-tool, group, listmembers, "{{ item }}"]
+      loop: "{{ offboarding_recovery_groups }}"
+      register: offboarding_recovery_verify_group_members
+      changed_when: false
+
+    - name: Verify approved group access was restored
+      ansible.builtin.assert:
+        that:
+          - offboard_user_name in item.stdout_lines
+        fail_msg: >-
+          {{ offboard_user_name }} is not in approved group {{ item.item }}.
+      loop: "{{ offboarding_recovery_verify_group_members.results }}"
+
+- name: Verify the matching Nextcloud user is enabled when present
+  hosts: nextcloud_server
+  become: true
+  gather_facts: false
+  vars:
+    nextcloud_occ: /var/www/nextcloud/occ
+  tasks:
+    - name: Read the matching Nextcloud user
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -u
+          - www-data
+          - php
+          - "{{ nextcloud_occ }}"
+          - user:info
+          - "{{ offboard_user_name }}"
+      register: offboarding_recovery_verify_nextcloud_user
+      failed_when: false
+      changed_when: false
+
+    - name: Verify the matching Nextcloud user is enabled
+      ansible.builtin.assert:
+        that:
+          - >-
+            'enabled: true'
+            in offboarding_recovery_verify_nextcloud_user.stdout
+        fail_msg: "Nextcloud user {{ offboard_user_name }} remains disabled."
+      when: offboarding_recovery_verify_nextcloud_user.rc == 0

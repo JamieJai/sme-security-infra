@@ -54,6 +54,7 @@
 |---|---|
 | `playbooks/ad-onboard-user.yml` | AD 사용자 온보딩 |
 | `playbooks/employee-offboarding-verify.yml` | AD disable, group 회수, Keycloak session, Nextcloud 상태 검증 |
+| `playbooks/employee-offboarding-recovery-verify.yml` | 승인된 identity, group, Nextcloud 복구 상태 검증 |
 | `playbooks/ad-join-all.yml` | Linux member server AD join |
 | `playbooks/ad-postconfig.yml` | AD 후속 구성 |
 | `playbooks/endpoint-app-deployment-scope.yml` | Endpoint 표준 앱 배포 pilot 보안 그룹과 computer membership 준비 |
@@ -70,6 +71,7 @@
 | Playbook | 위험/주의점 |
 |---|---|
 | `playbooks/employee-offboarding.yml` | 사용자 접근을 차단한다. wrapper의 plan, ticket, approver, exact username gate와 복구 계획을 먼저 확인 |
+| `playbooks/employee-offboarding-recovery.yml` | 비활성화된 identity와 명시한 group을 복구한다. 원 티켓과 별도 복구 승인을 요구 |
 | `playbooks/nextcloud-server.yml` | 기존 `/var/www/nextcloud` 제거 task가 있으므로 운영 서버에 직접 실행 금지 |
 | `playbooks/rebuild-dc01.yml` | DC 재구축 목적. `rebuild_dc_confirm=true`와 사전 정리 필요 |
 | `playbooks/additional-dc.yml` | DC join/reconcile 목적. bootstrap 대상 확인 필요 |
