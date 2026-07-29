@@ -23,6 +23,7 @@
 | Terraform 기준을 확인한다 | [reference/terraform-runbook.md](reference/terraform-runbook.md) |
 | Windows/macOS 단말 관리 방향을 본다 | [services/endpoint-management.md](services/endpoint-management.md) |
 | 지원용 핵심 증거를 빠르게 본다 | [portfolio/toss-it-manager-application.md](portfolio/toss-it-manager-application.md) |
+| 오프보딩 live lifecycle 사례를 본다 | [portfolio/employee-offboarding-lifecycle-pilot.md](portfolio/employee-offboarding-lifecycle-pilot.md) |
 | 이력서 프로젝트 문안을 본다 | [portfolio/resume-project-draft.md](portfolio/resume-project-draft.md) |
 | 10분 포트폴리오 데모를 진행한다 | [portfolio/it-manager-demo-runbook.md](portfolio/it-manager-demo-runbook.md) |
 

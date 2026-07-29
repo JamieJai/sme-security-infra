@@ -93,6 +93,8 @@ OPS_DB="$demo_dir/ops.sqlite" ./scripts/offboard-employee.sh \
 - plan mode에서는 AD, Keycloak, Nextcloud와 asset status가 바뀌지 않는다.
 - execute에는 ticket, approver, exact username confirmation이 필요하다.
 - 삭제 대신 disable-first와 별도 recovery 절차를 사용한다.
+- live 결과와 중간 실패는
+  `docs/portfolio/employee-offboarding-lifecycle-pilot.md`에서 확인한다.
 
 ## 5. 2분: 관리자 권한 없는 앱 배포
 

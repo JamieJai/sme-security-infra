@@ -22,6 +22,7 @@ required_files=(
   docs/portfolio/toss-it-manager-application.md
   docs/portfolio/resume-project-draft.md
   docs/portfolio/it-manager-demo-runbook.md
+  docs/portfolio/employee-offboarding-lifecycle-pilot.md
   docs/portfolio/endpoint-app-deployment-system-install.md
   docs/operations/employee-onboarding-runbook.md
   docs/operations/employee-offboarding-runbook.md

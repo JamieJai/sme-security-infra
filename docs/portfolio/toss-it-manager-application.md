@@ -28,7 +28,7 @@
 | 공고 요구사항 | 상태 | 저장소 증거 | 지원서 표현 |
 |---|---|---|---|
 | 네트워크·서버·내부 시스템 운영 | Verified | [Architecture](../architecture.md), [verify-all](../../ansible/playbooks/verify-all.yml) | Proxmox 기반 AD/IAM/협업/Mail/SIEM 환경을 구성하고 통합 health check 운영 |
-| 계정 및 권한 관리 | Verified / Implemented | [onboard script](../../scripts/onboard-employee.sh), [offboard runbook](../operations/employee-offboarding-runbook.md) | AD 그룹을 권한 원천으로 사용하고 온보딩은 live 검증, 오프보딩은 안전 gate와 fixture 검증 |
+| 계정 및 권한 관리 | Verified | [onboard script](../../scripts/onboard-employee.sh), [offboard pilot](employee-offboarding-lifecycle-pilot.md) | AD 그룹을 권한 원천으로 사용하고 전용 test identity의 온보딩·차단·복구·재차단을 live 검증 |
 | Windows endpoint 운영 | Verified | [ODJ script](../../scripts/generate-windows-odj-package.sh), [runbook](../services/endpoint-management.md) | ODJ, 자산 등록, Wazuh, pilot 앱 배포 및 reboot 검증 |
 | 업무 협업 도구 운영 | Verified | Nextcloud, Talk, Postfix/Dovecot runbook | 개인 lab의 파일·메신저·메일 연동 운영으로 한정 |
 | 사용자 IT 이슈 진단 | Implemented | [diagnose script](../../scripts/helpdesk-diagnose.sh), [scenario](../operations/helpdesk-scenarios.md) | 6개 업무 장애를 read-only 진단과 후속 조치 workflow로 표준화 |
@@ -161,8 +161,8 @@ rollback에서 제외했다.
 4. Google Workspace, 물리 복합기, NAC/DLP의 production 운영 경험은 주장하지 않는다.
 5. Kali는 Wazuh 탐지 품질 확인용으로 범위를 고정했으며 침투 경험을 IT Manager
    핵심 역량처럼 내세우지 않는다.
-6. 오프보딩은 plan과 safety fixture를 검증한 상태이며 승인된 test identity의
-   live apply와 recovery 결과는 아직 Verified로 주장하지 않는다.
+6. 오프보딩 AD/group/asset lifecycle은 전용 test identity로 live 검증했지만
+   실제 active Keycloak session과 provision된 Nextcloud user branch는 검증하지 않았다.
 
 ## 지원 전 남은 외부 실습
 

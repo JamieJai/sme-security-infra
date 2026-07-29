@@ -20,8 +20,9 @@
 - 신규 입사자 온보딩 v1은 AD 계정 생성, 부서 그룹 부여, Keycloak/Nextcloud/Mail/Wazuh 검증, Markdown 리포트, SQLite 기록, 선택적 Slack 알림까지 구현됐다.
 - 퇴사자 오프보딩 v1은 변경 없는 plan을 기본으로 하고 승인된 execute에서 AD
   disable, 관리 대상 그룹 회수, Keycloak session revoke, Nextcloud disable, 자산
-  `recovery_pending` 전환과 증적 기록을 수행하도록 구현됐다. fixture와 syntax
-  검증은 완료했으며 승인된 test identity의 live 적용은 남아 있다.
+  `recovery_pending` 전환과 증적 기록을 수행하도록 구현됐다. 전용 test identity로
+  AD/group/asset 차단, 복구, 재실행 수렴, final containment까지 live 검증했다.
+  active Keycloak session과 provision된 Nextcloud user branch는 남아 있다.
 - 사내 메신저는 Nextcloud Talk 웹 앱으로 구현돼 있다. `ansible/playbooks/nextcloud-talk.yml`이 설치/활성화를 담당하고, `verify-all.yml`은 `mail`과 `spreed` 앱 활성 상태를 같이 검증한다.
 - Slack은 `SLACK_WEBHOOK_URL` 기반으로 온보딩 결과 알림을 보낼 수 있다. 다음 단계는 온보딩 외 verify, backup, certificate, Wazuh 이벤트까지 공통 알림으로 확장하는 것이다.
 - Notion은 `homelab` MCP의 `notion_create_page`, `notion_publish_project_file` helper를 통해 운영 문서를 publish할 수 있게 한다. 토큰과 부모 페이지 ID는 env var로만 주입한다.
@@ -79,12 +80,14 @@
 6. 지원 자료: 루트 README, JD-증거 매트릭스, 10분 demo runbook 추가.
 7. 퇴사자 offboarding: disable-first plan/execute, session revoke, 자산 회수 증적
    workflow와 안전 gate 구현.
+8. 오프보딩 live pilot: 전용 identity의 차단, 승인 recovery, `changed=0`
+   재실행, final containment 검증.
 
 ## 다음 우선순위
 
-1. 오프보딩 live pilot: 승인된 test identity로 apply, verify, recovery까지 검증.
-2. macOS 실제 장비: FileVault, 표준/관리자 계정 분리, inventory, 복구 절차.
-3. SaaS test tenant: 사용자·그룹·MFA·session revoke·audit log lifecycle.
+1. active session pilot: Keycloak login session 생성 후 exact-user revoke 검증.
+2. Nextcloud OIDC pilot: local user provision 후 disable/enable branch 검증.
+3. macOS 실제 장비: FileVault, 표준/관리자 계정 분리, inventory, 복구 절차.
 4. Helpdesk 지표: priority, first response, resolution time, recurrence를 집계하는 report.
 5. 자산 lifecycle: 지급, 사용자 변경, 수리, 회수, wipe, 폐기 상태 전이.
 

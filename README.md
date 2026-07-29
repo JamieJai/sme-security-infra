@@ -63,6 +63,7 @@ Nextcloud disable을 검증하고 지급 자산은 기존 상태를 보존한 �
 
 - [퇴사자 오프보딩 runbook](docs/operations/employee-offboarding-runbook.md)
 - [오프보딩 wrapper](scripts/offboard-employee.sh)
+- [전용 test identity lifecycle pilot](docs/portfolio/employee-offboarding-lifecycle-pilot.md)
 
 ## 아키텍처
 
@@ -122,7 +123,7 @@ flowchart LR
 - Windows 11 test endpoint 2대와 Linux server agent를 포함한 Wazuh 8-agent 운영
 - Windows ODJ, endpoint 자산 등록, pilot 앱 배포와 reboot 검증
 - AD/SSO/Mail/Nextcloud 연동 및 입사자 workflow
-- disable-first 오프보딩 plan, 안전 gate, 자산 회수 상태 전이 fixture 검증
+- disable-first 오프보딩과 복구를 전용 test identity로 live 검증하고 재실행 수렴 확인
 - helpdesk 진단 리포트, health report, backup/restore 검증
 
 **아직 실무 경험으로 주장하지 않는 범위**

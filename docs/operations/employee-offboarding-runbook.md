@@ -193,3 +193,19 @@ ansible-playbook -i inventory/hosts --syntax-check \
 fixture test는 임시 SQLite DB를 사용해 plan mode가 자산 상태를 바꾸지 않는지,
 execute gate와 보호 계정 차단, 성공 검증 전 asset recovery 차단이 동작하는지
 확인한다. 실제 계정 차단과 복구 검증은 승인된 test identity로 별도 실행한다.
+
+## Live Pilot
+
+`2026-07-29`에 전용 test identity `offboard.pilot`과 모의 자산
+`PC-OFFPILOT01`로 다음을 검증했다.
+
+- onboarding 후 AD `512`, `HR_Staff`, 자산 `assigned`
+- offboarding 후 AD `514`, managed group 없음, 자산 `recovery_pending`
+- 별도 recovery 후 AD enable, 승인 group 복구, 자산 `assigned`
+- recovery 재실행 apply/verify `changed=0`
+- final containment 후 AD `514`, group 없음, 자산 `recovery_pending`
+
+Keycloak realm에는 active session이 없었고 Nextcloud local user도 생성되지 않아
+해당 두 live branch는 완료로 주장하지 않는다. 중간 실패와 수정 내역은
+[Employee Offboarding Lifecycle Pilot](../portfolio/employee-offboarding-lifecycle-pilot.md)에
+정리했다.
