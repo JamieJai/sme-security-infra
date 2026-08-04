@@ -28,11 +28,12 @@
 ## Initial Scenarios
 
 1. `kali01`에서 `ODJ-VERIFY01`만 대상으로 TCP port scan을 수행한다.
-2. 발견된 서비스가 SSH 등 승인된 lab service일 때만 실패 로그인 burst를 수행한다.
-3. Windows Security Event ID `4625` failed logon이 Wazuh alert rule `100501` 또는 burst rule `100502`로 보이는지 확인한다.
-4. lab 계정으로 성공 로그인을 수행하고 Event ID `4624`가 rule `100503`으로 보이는지 확인한다.
-5. `ODJ-VERIFY01`에서 승인된 PowerShell 명령을 실행하고 Event ID `4104`가 built-in `918xx` rule과 `windows_eventchannel` decoder로 보이는지 확인한다.
-6. Defender test는 EICAR 같은 안전한 test artifact만 사용하고, Event ID `1116`이 rule `100505`로 보이는지 확인한다.
+2. Windows Security Event ID `5157` blocked connection이 rule `100506` 또는 burst rule `100507`로 보이는지 확인한다.
+3. 발견된 서비스가 SSH 등 승인된 lab service일 때만 실패 로그인 burst를 수행한다.
+4. Windows Security Event ID `4625` failed logon이 Wazuh alert rule `100501` 또는 burst rule `100502`로 보이는지 확인한다.
+5. lab 계정으로 성공 로그인을 수행하고 Event ID `4624`가 rule `100503`으로 보이는지 확인한다.
+6. `ODJ-VERIFY01`에서 승인된 PowerShell 명령을 실행하고 Event ID `4104`가 built-in `918xx` rule과 `windows_eventchannel` decoder로 보이는지 확인한다.
+7. Defender test는 EICAR 같은 안전한 test artifact만 사용하고, Event ID `1116`이 rule `100505`로 보이는지 확인한다.
 
 ## Stop Conditions
 
@@ -91,9 +92,10 @@
 현재 남은 detection validation 작업:
 
 1. 별도 lab 계정과 lockout-safe test window를 기록한다.
-2. Kali source 전용 target firewall rule이 필요한지 검토하고 별도 승인한다.
-3. `ODJ-VERIFY01` Wazuh agent가 Active인지 각 테스트 직전에 다시 확인한다.
-4. 인증, PowerShell, Defender 시나리오는 각각 범위와 rollback을 확인한 뒤 실행한다.
+2. pilot의 Filtering Platform Connection failure auditing을 승인된 window에만 활성화한다.
+3. Kali source 전용 target firewall rule이 필요한지 검토하고 별도 승인한다.
+4. `ODJ-VERIFY01` Wazuh agent가 Active인지 각 테스트 직전에 다시 확인한다.
+5. 인증, PowerShell, Defender 시나리오는 각각 범위와 rollback을 확인한 뒤 실행한다.
 
 Kali를 먼저 설치하는 목적은 공격 도구 확보 자체가 아니다. Wazuh 수집, 탐지 규칙, Telegram 알림, 대상 snapshot, scope guard를 먼저 준비한 뒤 통제된 이벤트를 발생시켜 탐지 품질을 검증하기 위한 트래픽 발생기다.
 

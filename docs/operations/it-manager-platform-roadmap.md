@@ -34,6 +34,9 @@
   상태 전이와 승인/stale-state/evidence gate를 임시 DB fixture로 검증했다.
 - Windows ODJ package 발급과 적용, endpoint 자산 등록, Wazuh agent, pilot 표준 앱 SYSTEM 배포와 reboot 검증이 완료됐다.
 - Wazuh Windows EventChannel과 Telegram 알림이 적용됐고, manager 재시작 후 TCP 1514와 전체 agent Active를 확인하는 배포 gate가 추가됐다.
+- 방화벽·endpoint·network 위협 대응 campaign을 추가했다. WFP 5157 단건/반복
+  차단 rule과 negative fixture, pilot-only audit switch가 준비됐으며 live
+  적용 전 상태는 `Implemented`로 구분한다.
 - macOS/MDM, Google Workspace production tenant, 물리 복합기/NAC/DLP 운영은 구현 완료 범위가 아니며 지원서에서도 실제 운영 경험으로 주장하지 않는다.
 
 ## 운영 workflow 목표

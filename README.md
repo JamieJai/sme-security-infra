@@ -21,7 +21,7 @@
 | 사용자 지원 | 7개 helpdesk scenario, 티켓 lifecycle, SLA·재발 KPI, read-only 진단 |
 | 자산 lifecycle | 등록, 재고, 지급·이관, 수리·회수, wipe·폐기 승인 상태 전이 |
 | 협업 환경 | Nextcloud, Talk, Mail, 부서별 파일 공유, 사용자용 IT 가이드 |
-| 보안 가시성 | Wazuh 8개 managed agent, Windows EventChannel, custom detection, Telegram 알림 |
+| 보안 가시성 | Wazuh 8개 agent, WFP 방화벽 차단, endpoint detection, Telegram 알림 |
 | 운영 품질 | Ansible idempotency, Terraform plan, backup/restore test, health report, GitOps |
 
 ## 대표 문제 해결 사례

@@ -25,12 +25,16 @@ playbook은 기존 custom 파일을 메모리에 백업하고 Ansible timestamp 
 | 100503 | 3 | Windows Security Event ID 4624 interactive/RDP logon type 2 or 10 |
 | 100504 | 5 | Windows PowerShell Event ID 4104 JSON integration validation marker |
 | 100505 | 12 | Microsoft Defender Event ID 1116 malware detection |
+| 100506 | 7 | Windows Filtering Platform Event ID 5157 blocked connection |
+| 100507 | 10 | 동일 source의 60초 내 Windows blocked connection 5회 |
 
 100200은 Keycloak event의 parent rule이며 level 0이라 alert를 생성하지 않는다. Windows rule은 Kali purple-team validation의 초기 증거 수집 기준으로 사용한다.
 
 Windows agent의 live EventChannel log는 `windows_eventchannel` decoder와 built-in Windows rule tree로 처리된다. JSON fixture와 integration event는 level 0 parent `100500`으로 묶는다. Rule `100501`, `100503`, `100504`, `100505`는 정확한 live parent와 fixture parent를 함께 참조하고 provider, channel, event ID field를 검증한다. `100503`은 network/service logon type `3`을 제외하고 console interactive `2`와 RDP `10`만 허용한다.
 
 `100504`는 JSON fixture 또는 integration event에서 `WAZUH_4104_VALIDATION_` marker를 검증하는 level 5 rule이다. Live `windows_eventchannel` parent에는 연결하지 않는다. 모든 live 4104를 custom rule로 덮어쓰면 내장 `91803` 이후 탐지의 원래 심각도를 낮추거나 Telegram 알림을 불필요하게 늘릴 수 있기 때문이다. 실제 PowerShell 행위는 Wazuh built-in `918xx` rule의 심각도를 따른다. `100505`는 내장 Defender 1116 rule `62123` 뒤에 같은 level 12로 연결해 malware 탐지 심각도를 보존한다.
+
+`100506`은 Security 5157 blocked connection만 탐지하고 `100507`은 같은 sourceAddress의 60초 내 5회 차단을 network scan 후보로 올린다. 허용 event 5156 negative fixture가 두 rule에 들어오지 않는지 함께 검증한다. Filtering Platform auditing은 event volume이 높을 수 있어 기본 `observe`이며 명시된 Windows pilot에서 failure-only로만 활성화한다. 변경 작업은 `no_auditing` baseline을 명시적으로 확인해야 하며, enable은 현재 상태가 `No Auditing` 또는 이미 원하는 failure-only일 때만 허용해 기존 audit policy를 덮어쓰지 않고 재실행 시에도 수렴한다.
 
 기본 Windows agent 설정은 Application, Security, System channel만 수집하므로 `100504`와 `100505`를 live 검증하려면 `playbooks/wazuh-agent-windows.yml`의 중앙 `windows` group shared config를 적용해야 한다.
 

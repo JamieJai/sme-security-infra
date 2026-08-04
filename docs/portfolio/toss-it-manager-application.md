@@ -36,6 +36,7 @@
 | IT 자산 lifecycle | Implemented | [asset runbook](../operations/asset-lifecycle-runbook.md), [tests](../../tests/test_asset_lifecycle.py) | 지급·이관·수리·회수·wipe·폐기의 승인형 상태 전이를 fixture로 검증 |
 | 반복 업무 자동화·프로세스 개선 | Verified | onboarding, health report, endpoint deployment scripts | 실행뿐 아니라 검증·리포트·SQLite 기록까지 자동화 |
 | 보안 요구사항을 고려한 운영 | Verified | Wazuh, 최소 권한 SMB, secret guard, egress guard | 일반 사용자 권한 상승 없이 앱 배포하고 보안 로그와 rollback 조건 운영 |
+| 방화벽·endpoint·network 위협 분석 | Implemented | [security campaign](../operations/security-threat-response-campaign.md), WFP/Wazuh fixtures | 탐지·분석·대응·복구 기준과 pilot 통제를 구현했으며 live WFP/Defender 결과 전에는 검증 완료로 주장하지 않음 |
 | 문제 데이터화와 근본 해결 | Verified | `.codex/mcp/homelab_ops.sqlite`, Markdown reports, Wazuh incident handoff | 결과 상태와 증적을 저장하고 실패 후 배포 gate를 추가 |
 | macOS 이해 및 운영 | Gap | 설계 문서만 존재 | 실제 macOS/MDM 운영 경험으로 주장하지 않음 |
 | Google Workspace/Slack SaaS 운영 | Gap | Slack/Notion integration path는 있으나 production tenant 없음 | API 연계 경험과 production administration 경험을 분리 |

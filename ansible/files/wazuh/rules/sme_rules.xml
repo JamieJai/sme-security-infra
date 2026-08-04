@@ -110,4 +110,22 @@
     <group>windows,defender,malware,</group>
   </rule>
 
+  <rule id="100506" level="7">
+    <if_sid>60001,100500</if_sid>
+    <field name="win.system.providerName">^Microsoft-Windows-Security-Auditing$</field>
+    <field name="win.system.channel">^Security$</field>
+    <field name="win.system.eventID">^5157$</field>
+    <description>Windows Filtering Platform blocked a connection from $(win.eventdata.sourceAddress) to $(win.eventdata.destAddress):$(win.eventdata.destPort) on $(win.system.computer).</description>
+    <mitre><id>T1046</id></mitre>
+    <group>windows,firewall,network_connection_blocked,</group>
+  </rule>
+
+  <rule id="100507" level="10" frequency="5" timeframe="60">
+    <if_matched_sid>100506</if_matched_sid>
+    <same_field>win.eventdata.sourceAddress</same_field>
+    <description>Multiple Windows firewall connection blocks from the same source.</description>
+    <mitre><id>T1046</id></mitre>
+    <group>windows,firewall,network_scan,</group>
+  </rule>
+
 </group>

@@ -52,3 +52,6 @@ run_test windows-4624-success-logon 100503
 run_negative_test windows-4624-network-logon 100503
 run_test windows-powershell-4104 100504
 run_test windows-defender-1116 100505
+run_test windows-5157-blocked-connection 100506
+run_test windows-5157-blocked-connection 100507 6
+run_negative_test windows-5156-allowed-connection 100506

@@ -126,6 +126,9 @@
     wazuh_windows_agent_group: "windows"
     wazuh_windows_agent_name: "{{ inventory_hostname | upper }}"
     wazuh_windows_script_block_logging_state: observe
+    wazuh_windows_filtering_platform_audit_state: observe
+    wazuh_windows_filtering_platform_audit_targets: []
+    wazuh_windows_filtering_platform_audit_baseline: unconfirmed
   tasks:
     - name: Verify Windows endpoint is reachable
       ansible.windows.win_ping:
@@ -136,6 +139,87 @@
           - wazuh_windows_script_block_logging_state in ['observe', 'enabled', 'disabled']
         fail_msg: >-
           wazuh_windows_script_block_logging_state must be observe, enabled, or disabled.
+
+    - name: Validate Windows Filtering Platform audit controls
+      ansible.builtin.assert:
+        that:
+          - wazuh_windows_filtering_platform_audit_state in ['observe', 'enabled', 'disabled']
+          - wazuh_windows_filtering_platform_audit_baseline in ['unconfirmed', 'no_auditing']
+          - wazuh_windows_filtering_platform_audit_state == 'observe' or wazuh_windows_filtering_platform_audit_baseline == 'no_auditing'
+          - >-
+            wazuh_windows_filtering_platform_audit_targets |
+            difference(groups['windows_endpoint_pilot']) | length == 0
+        fail_msg: >-
+          Filtering Platform audit changes require a confirmed no_auditing baseline
+          and targets restricted to the windows_endpoint_pilot inventory group.
+
+    - name: Read current Filtering Platform Connection audit policy
+      ansible.windows.win_command: >-
+        auditpol.exe /get /subcategory:"Filtering Platform Connection"
+      register: wazuh_windows_filtering_platform_audit_current
+      changed_when: false
+      when:
+        - wazuh_windows_filtering_platform_audit_state != 'observe'
+        - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
+
+    - name: Require a safe audit baseline or the desired idempotent state
+      ansible.builtin.assert:
+        that:
+          - >-
+            wazuh_windows_filtering_platform_audit_current.stdout |
+            regex_search('(?im)Filtering Platform Connection\\s+(?:No Auditing|Failure)\\s*$')
+        fail_msg: >-
+          Refusing to replace an existing Filtering Platform Connection audit policy.
+          Confirm a no_auditing baseline and define a matching restore path first.
+      when:
+        - wazuh_windows_filtering_platform_audit_state == 'enabled'
+        - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
+
+    - name: Enable failed Filtering Platform Connection auditing on approved pilot
+      ansible.windows.win_command: >-
+        auditpol.exe /set /subcategory:"Filtering Platform Connection"
+        /success:disable /failure:enable
+      when:
+        - wazuh_windows_filtering_platform_audit_state == 'enabled'
+        - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
+        - >-
+          not (wazuh_windows_filtering_platform_audit_current.stdout |
+          regex_search('(?im)Filtering Platform Connection\\s+Failure\\s*$'))
+
+    - name: Disable managed Filtering Platform Connection auditing on approved pilot
+      ansible.windows.win_command: >-
+        auditpol.exe /set /subcategory:"Filtering Platform Connection"
+        /success:disable /failure:disable
+      when:
+        - wazuh_windows_filtering_platform_audit_state == 'disabled'
+        - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
+        - >-
+          not (wazuh_windows_filtering_platform_audit_current.stdout |
+          regex_search('(?im)Filtering Platform Connection\\s+No Auditing\\s*$'))
+
+    - name: Read final Filtering Platform Connection audit policy
+      ansible.windows.win_command: >-
+        auditpol.exe /get /subcategory:"Filtering Platform Connection"
+      register: wazuh_windows_filtering_platform_audit_final
+      changed_when: false
+      when:
+        - wazuh_windows_filtering_platform_audit_state != 'observe'
+        - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
+
+    - name: Verify Filtering Platform Connection audit policy convergence
+      ansible.builtin.assert:
+        that:
+          - >-
+            (wazuh_windows_filtering_platform_audit_state == 'enabled' and
+             (wazuh_windows_filtering_platform_audit_final.stdout |
+              regex_search('(?im)Filtering Platform Connection\\s+Failure\\s*$'))) or
+            (wazuh_windows_filtering_platform_audit_state == 'disabled' and
+             (wazuh_windows_filtering_platform_audit_final.stdout |
+              regex_search('(?im)Filtering Platform Connection\\s+No Auditing\\s*$')))
+        fail_msg: Filtering Platform Connection audit policy did not converge.
+      when:
+        - wazuh_windows_filtering_platform_audit_state != 'observe'
+        - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
 
     - name: Enable PowerShell Script Block Logging policy
       ansible.windows.win_regedit:

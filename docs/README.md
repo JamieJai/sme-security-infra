@@ -19,6 +19,7 @@
 | 사용자 문의/장애 진단 시나리오를 본다 | [operations/helpdesk-scenarios.md](operations/helpdesk-scenarios.md) |
 | Helpdesk ticket과 KPI 운영 기준을 본다 | [operations/helpdesk-metrics-runbook.md](operations/helpdesk-metrics-runbook.md) |
 | Endpoint 자산 상태 전이를 관리한다 | [operations/asset-lifecycle-runbook.md](operations/asset-lifecycle-runbook.md) |
+| 방화벽·endpoint·network 위협 대응을 검증한다 | [operations/security-threat-response-campaign.md](operations/security-threat-response-campaign.md) |
 | 신규 입사자용 IT 사용 가이드를 본다 | [getting-started/employee-it-onboarding.md](getting-started/employee-it-onboarding.md) |
 | 전체 자동화 목표를 본다 | [getting-started/full-rebuild-roadmap.md](getting-started/full-rebuild-roadmap.md) |
 | Ansible playbook 목록과 위험도를 확인한다 | [reference/ansible-playbook-catalog.md](reference/ansible-playbook-catalog.md) |

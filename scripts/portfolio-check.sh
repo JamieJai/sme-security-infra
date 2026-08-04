@@ -29,6 +29,7 @@ required_files=(
   docs/operations/helpdesk-scenarios.md
   docs/operations/helpdesk-metrics-runbook.md
   docs/operations/asset-lifecycle-runbook.md
+  docs/operations/security-threat-response-campaign.md
   scripts/onboard-employee.sh
   scripts/offboard-employee.sh
   scripts/recover-offboarded-employee.sh
@@ -49,6 +50,7 @@ required_files=(
   tests/test_helpdesk_workflow.py
   tests/test_asset_lifecycle.py
   tests/test_register_endpoint.py
+  tests/test_security_detection_safety.py
 )
 
 for command_name in git bash python3 ansible-playbook; do
@@ -144,6 +146,9 @@ pass "identity playbook safety invariants"
 
 python3 -m unittest -q "$ROOT_DIR/tests/test_kali_egress_guard.py"
 pass "Kali egress guard unit tests"
+
+python3 -m unittest -q "$ROOT_DIR/tests/test_security_detection_safety.py"
+pass "firewall and endpoint detection safety invariants"
 
 ROOT_DIR="$ROOT_DIR" python3 - <<'PY_XML'
 import os
