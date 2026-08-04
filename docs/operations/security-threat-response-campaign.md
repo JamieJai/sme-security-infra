@@ -22,7 +22,7 @@ Kali 도구 사용 자체가 목적이 아니며 모든 live traffic은 `kali01`
 
 | 영역 | 통제된 위협 | 원본 증거 | Wazuh 기준 | 대응 증거 | 현재 상태 |
 |---|---|---|---|---|---|
-| Firewall/Network | 고정 5-port connection scan | Security 5157, source `.37`, target `.77` | `100506`, burst `100507` | Kali guard 유지, target rule 불변, audit rollback | fixture 준비 |
+| Firewall/Network | 고정 5-port connection scan | Security 5157, source `.37`, target `.77` | `100506`, burst `100507` | Kali guard 유지, target rule 불변, audit rollback | read-only baseline 확인, live detection 예정 |
 | Endpoint/Auth | 전용 lab 계정 실패 로그인 5회 | Security 4625 | `100501`, burst `100502` | lockout 확인, source/account containment 판단 | 단건 live 완료, burst 예정 |
 | Endpoint/PowerShell | benign validation marker | PowerShell 4104 | built-in `918xx` | process/script 분석, policy rollback | collection live 완료, policy 예정 |
 | Endpoint/Defender | EICAR test artifact | Defender 1116 | `100505` level 12 | quarantine 확인, artifact 제거, Defender health | fixture 준비 |
@@ -33,6 +33,10 @@ Windows Filtering Platform Event 5157은 차단된 connection의 source/destinat
 port, protocol, application, filter runtime ID를 제공한다. Packet Drop 5152는
 packet마다 발생해 volume이 매우 높을 수 있으므로 초기 campaign은 connection
 failure 5157만 사용한다.
+
+`auditpol` 자동화는 공백과 OS 표시 언어에 영향을 받는 subcategory name 대신
+Microsoft Filtering Platform Connection GUID
+`{0CCE9226-69AE-11D9-BED3-505054503030}`를 사용한다.
 
 준비된 안전장치:
 
@@ -49,13 +53,24 @@ Live enable 전 확인:
 ```bash
 cd ansible
 ansible odj-verify01 -i inventory/hosts -m ansible.windows.win_command \
-  -a 'auditpol.exe /get /subcategory:"Filtering Platform Connection"'
+  -a 'auditpol.exe /get /subcategory:{0CCE9226-69AE-11D9-BED3-505054503030}'
 ansible-playbook -i inventory/hosts playbooks/verify-all.yml --tags wazuh
 ```
 
 `auditpol` 원본 출력은 evidence에 기록한다. 기존 상태가 `No Auditing`이 아니면
 playbook이 enable을 거부한다. 이 경우 기존 설정과 동일한 restore path를 먼저
 설계하고 별도 승인하기 전에는 변경하지 않는다.
+
+2026-08-04 read-only preflight에서 `odj-verify01`의 baseline이 `No Auditing`임을
+확인했다. Name 기반 `auditpol` 호출은 rc 87로 실패했고 GUID 호출은 rc 0으로
+성공해 playbook과 runbook을 GUID 기반으로 보강했다. 이 과정에서 audit policy
+변경은 발생하지 않았다. Wazuh MCP API 조회는 현재 Codex session에
+`WAZUH_USER/WAZUH_PASSWORD`가 없어 사용할 수 없었으므로 live gate에서는
+Ansible 검증 경로를 사용한다.
+
+같은 preflight의 `verify-all.yml --tags wazuh`는 변경 0건으로 통과했고 Wazuh
+manager 검증 13개 항목, Windows agent service 2개, managed agent 8개 Active를
+확인했다.
 
 승인 후 pilot만 활성화:
 

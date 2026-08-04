@@ -155,7 +155,7 @@
 
     - name: Read current Filtering Platform Connection audit policy
       ansible.windows.win_command: >-
-        auditpol.exe /get /subcategory:"Filtering Platform Connection"
+        auditpol.exe /get /subcategory:{0CCE9226-69AE-11D9-BED3-505054503030}
       register: wazuh_windows_filtering_platform_audit_current
       changed_when: false
       when:
@@ -167,7 +167,7 @@
         that:
           - >-
             wazuh_windows_filtering_platform_audit_current.stdout |
-            regex_search('(?im)Filtering Platform Connection\\s+(?:No Auditing|Failure)\\s*$')
+            regex_search('(?im)^\\s*(?:No Auditing|Failure)\\s*$')
         fail_msg: >-
           Refusing to replace an existing Filtering Platform Connection audit policy.
           Confirm a no_auditing baseline and define a matching restore path first.
@@ -177,29 +177,29 @@
 
     - name: Enable failed Filtering Platform Connection auditing on approved pilot
       ansible.windows.win_command: >-
-        auditpol.exe /set /subcategory:"Filtering Platform Connection"
+        auditpol.exe /set /subcategory:{0CCE9226-69AE-11D9-BED3-505054503030}
         /success:disable /failure:enable
       when:
         - wazuh_windows_filtering_platform_audit_state == 'enabled'
         - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
         - >-
           not (wazuh_windows_filtering_platform_audit_current.stdout |
-          regex_search('(?im)Filtering Platform Connection\\s+Failure\\s*$'))
+          regex_search('(?im)^\\s*Failure\\s*$'))
 
     - name: Disable managed Filtering Platform Connection auditing on approved pilot
       ansible.windows.win_command: >-
-        auditpol.exe /set /subcategory:"Filtering Platform Connection"
+        auditpol.exe /set /subcategory:{0CCE9226-69AE-11D9-BED3-505054503030}
         /success:disable /failure:disable
       when:
         - wazuh_windows_filtering_platform_audit_state == 'disabled'
         - inventory_hostname in wazuh_windows_filtering_platform_audit_targets
         - >-
           not (wazuh_windows_filtering_platform_audit_current.stdout |
-          regex_search('(?im)Filtering Platform Connection\\s+No Auditing\\s*$'))
+          regex_search('(?im)^\\s*No Auditing\\s*$'))
 
     - name: Read final Filtering Platform Connection audit policy
       ansible.windows.win_command: >-
-        auditpol.exe /get /subcategory:"Filtering Platform Connection"
+        auditpol.exe /get /subcategory:{0CCE9226-69AE-11D9-BED3-505054503030}
       register: wazuh_windows_filtering_platform_audit_final
       changed_when: false
       when:
@@ -212,10 +212,10 @@
           - >-
             (wazuh_windows_filtering_platform_audit_state == 'enabled' and
              (wazuh_windows_filtering_platform_audit_final.stdout |
-              regex_search('(?im)Filtering Platform Connection\\s+Failure\\s*$'))) or
+              regex_search('(?im)^\\s*Failure\\s*$'))) or
             (wazuh_windows_filtering_platform_audit_state == 'disabled' and
              (wazuh_windows_filtering_platform_audit_final.stdout |
-              regex_search('(?im)Filtering Platform Connection\\s+No Auditing\\s*$')))
+              regex_search('(?im)^\\s*No Auditing\\s*$')))
         fail_msg: Filtering Platform Connection audit policy did not converge.
       when:
         - wazuh_windows_filtering_platform_audit_state != 'observe'

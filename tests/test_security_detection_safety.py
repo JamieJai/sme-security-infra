@@ -72,6 +72,11 @@ class SecurityDetectionSafetyTests(unittest.TestCase):
             endpoint_play["vars"]["wazuh_windows_filtering_platform_audit_baseline"],
             "unconfirmed",
         )
+        self.assertIn(
+            "/subcategory:{0CCE9226-69AE-11D9-BED3-505054503030}",
+            source,
+        )
+        self.assertNotIn('/subcategory:"Filtering Platform Connection"', source)
         self.assertIn("difference(groups['windows_endpoint_pilot'])", source)
         self.assertIn("/success:disable /failure:enable", source)
         self.assertIn("/success:disable /failure:disable", source)
